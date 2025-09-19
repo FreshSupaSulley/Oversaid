@@ -1,0 +1,31 @@
+# CensorCraft API jars (make them grab the files themselves)
+libs/**/*.jar
+
+# Mac
+.DS_Store
+
+# eclipse
+bin
+*.launch
+.settings
+.metadata
+.classpath
+.project
+
+# idea
+out
+*.ipr
+*.iws
+*.iml
+.idea
+
+# gradle
+build
+.gradle
+
+# other
+eclipse
+run
+
+# Files from Forge MDK
+forge*changelog.txt
