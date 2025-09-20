@@ -99,13 +99,12 @@ repositories {
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     annotationProcessor 'net.minecraftforge:eventbus-validator:7.0-beta.10'
-    
-    // Pull in the CensorCraft API but only during compile time
-    // You need to download the API jars from the releases page on the CensorCraft repo and put them at libs/censorcraft/api/1.0.0/*.jar
-    compileOnly "censorcraft:api:1.0.0"
+
+    compileOnly "censorcraft:api:+"
     
     // Grab the mods for runtime
-    runtimeOnly "curse.maven:censorcraft-1249599:6797427"
+//    runtimeOnly "curse.maven:censorcraft-1249599:6797427"
+    runtimeOnly "censorcraft:deleteme:2.2.0"
     runtimeOnly fg.deobf("maven.modrinth:simple-voice-chat:forge-${voicechat_version}")
 }
 

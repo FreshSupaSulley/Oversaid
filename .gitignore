@@ -1,5 +1,5 @@
 # CensorCraft API jars (make them grab the files themselves)
-libs/**/*.jar
+libs
 
 # Mac
 .DS_Store
