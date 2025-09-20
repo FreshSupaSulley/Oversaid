@@ -1,2 +1,2 @@
 # Taboo Trickler
-Plugin for CensorCraft that slowly releases taboo'd words every 3 minutes.
+Plugin for CensorCraft that releases taboos as the game progresses.
