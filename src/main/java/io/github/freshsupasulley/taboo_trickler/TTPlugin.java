@@ -1,9 +1,10 @@
 package io.github.freshsupasulley.taboo_trickler;
 
-import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import io.github.freshsupasulley.censorcraft.api.CensorCraftPlugin;
+import io.github.freshsupasulley.censorcraft.api.CensorCraftServerAPI;
 import io.github.freshsupasulley.censorcraft.api.ForgeCensorCraftPlugin;
 import io.github.freshsupasulley.censorcraft.api.events.PluginRegistration;
+import io.github.freshsupasulley.censorcraft.api.events.server.ChatTabooEvent;
 import io.github.freshsupasulley.censorcraft.api.events.server.ReceiveTranscription;
 import io.github.freshsupasulley.censorcraft.api.events.server.ServerConfigEvent;
 import net.minecraft.network.chat.Component;
@@ -11,7 +12,9 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 @ForgeCensorCraftPlugin
@@ -25,21 +28,32 @@ public class TTPlugin implements CensorCraftPlugin {
 	private static long LAST_WORD_COUNT_CHECK = System.currentTimeMillis();
 	
 	// Adding from a set list
-	private static CommentedFileConfig config;
+	public static CensorCraftServerAPI serverAPI;
 	private static long LAST_ADDITION = System.currentTimeMillis();
 	private static int LAST_ADDITION_INDEX;
 	
 	@Override
 	public void register(PluginRegistration registration)
 	{
-		registration.registerEvent(ServerConfigEvent.class, this::onServerConfig);
+		// Store the server config somewhere
+		registration.registerEvent(ServerConfigEvent.class, (event) -> serverAPI = event.getAPI());
+		
+		// Track the most said words
 		registration.registerEvent(ReceiveTranscription.class, this::onReceiveTranscription);
-		// To register punishments
-	}
-	
-	public void onServerConfig(ServerConfigEvent event)
-	{
-		config = event.getAPI().getServerConfig();
+		
+		// Add some more detail when they're punished
+		registration.registerEvent(ChatTabooEvent.class, event ->
+		{
+			TricklerPunishment punishment = (TricklerPunishment) event.getPunishments().stream().filter(taboo -> taboo.getClass().equals(TricklerPunishment.class)).findFirst().orElse(null);
+			
+			if(punishment != null)
+			{
+				event.setText(Component.empty().append((Component) event.getText()).append(" (severity: ").append(Component.literal(punishment.getCategory().fancyName).withStyle(style -> style.withBold(true))).append(")"));
+			}
+		});
+		
+		// Our server
+		registration.registerPunishment(TricklerPunishment.class);
 	}
 	
 	public void onReceiveTranscription(ReceiveTranscription event)
@@ -51,37 +65,33 @@ public class TTPlugin implements CensorCraftPlugin {
 		while(matcher.find())
 		{
 			String match = matcher.group();
-			int merged = WORD_COUNTS.merge(match, 1, Integer::sum);
+			WORD_COUNTS.merge(match, 1, Integer::sum);
 		}
 	}
 	
 	@SubscribeEvent
 	public static void onLevelTick(TickEvent.PlayerTickEvent.Post event)
 	{
-		List<String> taboos = config.get("global_taboos");
+		List<String> taboos = serverAPI.getServerConfig().get("global_taboos");
 		long now = System.currentTimeMillis();
 		
 		// Repetition
 		if(now - LAST_WORD_COUNT_CHECK > REPETITION_UPDATE_TIME)
 		{
 			// Find the next
-			Iterator<Map.Entry<String, Integer>> iterator = WORD_COUNTS.entrySet().iterator();
-			
-			while(iterator.hasNext())
+			for(Map.Entry<String, Integer> entry : WORD_COUNTS.entrySet())
 			{
-				var entry = iterator.next();
-				
 				// If we don't already have this taboo AND there's enough repetitions
 				if(!taboos.contains(entry.getKey()) && entry.getValue() >= MIN_WORD_REPETITIONS)
 				{
 					TabooTrickler.LOGGER.info("Banning {} for saying it too much", entry.getKey());
 					
-					// Announce what's being banned banned
-					event.player.level().players().forEach(player -> player.displayClientMessage(Component.literal("Banned \"").append(Component.literal(entry.getKey()).withStyle(style -> style.withBold(true))).append("\" for saying it too much"), false));
+					// Announce what's being banned
+					event.player.level().players().forEach(player -> player.displayClientMessage(Component.literal("Banned \"").append(Component.literal(entry.getKey()).withStyle(style -> style.withBold(true))), false));
 					
 					// Ban it
 					taboos.add(entry.getKey());
-					config.set("global_taboos", taboos);
+					serverAPI.getServerConfig().set("global_taboos", taboos);
 					break;
 				}
 			}
@@ -116,7 +126,7 @@ public class TTPlugin implements CensorCraftPlugin {
 					
 					// Notify the world
 					event.player.level().players().forEach(player -> player.displayClientMessage(Component.literal("Banned a word (" + sample.length() + " character" + (sample.length() == 1 ? "" : "s") + " long)"), false));
-					config.set("global_taboos", taboos);
+					serverAPI.getServerConfig().set("global_taboos", taboos);
 					break;
 				}
 			}

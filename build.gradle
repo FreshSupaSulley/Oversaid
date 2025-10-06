@@ -104,7 +104,7 @@ dependencies {
     
     // Grab the mods for runtime
 //    runtimeOnly "curse.maven:censorcraft-1249599:6797427"
-    runtimeOnly "censorcraft:deleteme:2.2.0"
+    runtimeOnly "censorcraft:censorcraft:3.0.0"
     runtimeOnly fg.deobf("maven.modrinth:simple-voice-chat:forge-${voicechat_version}")
 }
 
