@@ -1,8 +1,10 @@
-package io.github.freshsupasulley.taboo_trickler;
+package io.github.freshsupasulley.taboo_trickler.forge;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.logging.LogUtils;
+import io.github.freshsupasulley.taboo_trickler.*;
+import io.github.freshsupasulley.taboo_trickler.plugin.TricklerPunishment;
 import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.commands.Commands;
@@ -26,6 +28,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.WallTorchBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
@@ -33,6 +36,7 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -46,7 +50,7 @@ public final class TabooTrickler {
 	
 	public static final String MODID = "taboo_trickler";
 	public static final Logger LOGGER = LogUtils.getLogger();
-	public static final Map<UUID, Map<Integer, Long>> RESETS = new HashMap<>();
+	public static final Map<UUID, Map<Integer, ResetFunction>> RESETS = new HashMap<>();
 	
 	public TabooTrickler(FMLJavaModLoadingContext context)
 	{
@@ -76,29 +80,62 @@ public final class TabooTrickler {
 	}
 	
 	@SubscribeEvent
+	private static void onServerTick(TickEvent.ServerTickEvent event)
+	{
+		RESETS.forEach((key, value) ->
+		{
+			ServerPlayer player = event.getServer().getPlayerList().getPlayer(key);
+			handleReset(player, value);
+		});
+	}
+	
+	@SubscribeEvent
+	private static void onClientTick(TickEvent.ClientTickEvent event)
+	{
+		RESETS.forEach((key, value) -> handleReset(Minecraft.getInstance(), value));
+	}
+	
+	private static <T> void handleReset(T context, Map<Integer, ResetFunction> value)
+	{
+		final long time = System.currentTimeMillis();
+		
+		for(Iterator<Map.Entry<Integer, ResetFunction>> it = value.entrySet().iterator(); it.hasNext();)
+		{
+			ResetFunction reset = it.next().getValue();
+			
+			// Check if expired
+			if(time >= reset.resetTime())
+			{
+				// Run the reset and remove from the iterator
+				// This guaranteed to be a server punishment here
+				//noinspection unchecked
+				((SidedPunishment<T>) reset.punishment()).fireReset(context);
+				it.remove();
+			}
+		}
+	}
+	
+	@SubscribeEvent
 	private static void registerCommands(RegisterCommandsEvent event)
 	{
 		var dispatcher = event.getDispatcher();
 		
-		dispatcher.register(Commands.literal("testtaboo").requires(source -> source.hasPermission(4)).then(Commands.argument("category", StringArgumentType.word()).suggests((ctx, builder) ->
+		// For testing our punishments
+		dispatcher.register(Commands.literal("trickler").requires(source -> source.hasPermission(4)).then(Commands.argument("category", StringArgumentType.word()).suggests((ctx, builder) ->
 		{
 			for(var cat : TricklerCategory.values())
 			{
 				builder.suggest(cat.name().toLowerCase());
 			}
 			return builder.buildFuture();
-		}).then(Commands.argument("side", StringArgumentType.word()).suggests((ctx, builder) ->
-		{
-			builder.suggest("client");
-			builder.suggest("server");
-			return builder.buildFuture();
 		}).then(Commands.argument("index", IntegerArgumentType.integer(0)).executes(ctx ->
 		{
 			String categoryName = StringArgumentType.getString(ctx, "category").toUpperCase();
-			String side = StringArgumentType.getString(ctx, "side").toLowerCase();
 			int index = IntegerArgumentType.getInteger(ctx, "index");
 			
+			// Get the category
 			TricklerCategory category;
+			
 			try
 			{
 				category = TricklerCategory.valueOf(categoryName);
@@ -108,65 +145,63 @@ public final class TabooTrickler {
 				return 0;
 			}
 			
+			// Get the punishment
 			ServerPlayer player = ctx.getSource().getPlayerOrException();
 			
-			if(side.equals("server"))
+			if(index < 0 || index >= category.punishments.size())
 			{
-				if(index < 0 || index >= category.server.size())
+				ctx.getSource().sendFailure(Component.literal("Invalid index (must be within [0-" + (category.punishments.size() - 1) + "]"));
+				return 0;
+			}
+			
+			if(category.punishments.get(index).isServerSide())
+			{
+				try
 				{
-					ctx.getSource().sendFailure(Component.literal("Invalid index for server punishments"));
+					new TricklerPunishment(category, index).punish(player);
+				} catch(RuntimeException e)
+				{
+					ctx.getSource().sendFailure(Component.literal("Failed executing server punishment"));
 					return 0;
 				}
 				
-				var punishment = category.server.get(index);
-				boolean success = punishment.punish(player);
-				
-				ctx.getSource().sendSuccess(() -> Component.literal("Executed server punishment: " + success), false);
-				return 1;
-				
-			}
-			else if(side.equals("client"))
-			{
-				//						if(index < 0 || index >= category.client.size())
-				//						{
-				//							ctx.getSource().sendFailure(Component.literal("Invalid index for client punishments."));
-				//							return 0;
-				//						}
-				//
-				//						// Flag for later execution on client
-				//						TabooTrickler.markClientPunishment(player.getUUID(), category, index);
-				
-				TTPlugin.serverAPI.punish(player, null, new TricklerPunishment());
-				
-				ctx.getSource().sendSuccess(() -> Component.literal("Marked client punishment to run on player"), false);
+				ctx.getSource().sendSuccess(() -> Component.literal("Executed server punishment"), false);
 				return 1;
 			}
 			else
 			{
-				ctx.getSource().sendFailure(Component.literal("Side must be 'client' or 'server'."));
-				return 0;
+				try
+				{
+					new TricklerPunishment(category, index).punishClientSide();
+				} catch(RuntimeException e)
+				{
+					ctx.getSource().sendFailure(Component.literal("Failed executing client punishment"));
+					return 0;
+				}
+				
+				ctx.getSource().sendSuccess(() -> Component.literal("Executed client punishment"), false);
+				return 1;
 			}
-		})))));
+		}))));
 	}
 	
-	public static void addReset(UUID player, int index, TTPunishment selected)
+	public static void addReset(UUID player, int index, SidedPunishment<?> selected)
 	{
-		Map<Integer, Long> ids = RESETS.computeIfAbsent(player, uuid -> new HashMap<>());
-		
 		// If a reset for this punishment was already due, this effectively just delays when the reset will happen
-		ids.put(index, selected.getResetTime());
+		LOGGER.info("Putting reset for punishment #{}", index);
+		RESETS.computeIfAbsent(player, uuid -> new HashMap<>(Map.of(index, new ResetFunction(selected, selected.calculateResetTime()))));
 	}
 	
 	// SERVER
-	private static TSPunishment register(TricklerCategory category, BiPredicate<ServerPlayer, ServerLevel> execution)
+	private static ServerPunishment register(TricklerCategory category, BiPredicate<ServerPlayer, ServerLevel> execution)
 	{
-		return new TSPunishment(category, (player) -> execution.test(player, player.level()));
+		return new ServerPunishment(category, (player) -> execution.test(player, player.level()));
 	}
 	
 	// CLIENT
-	private static TCPunishment register(TricklerCategory category, Predicate<Minecraft> punishment)
+	private static ClientPunishment register(TricklerCategory category, Predicate<Minecraft> punishment)
 	{
-		return new TCPunishment(category, punishment);
+		return new ClientPunishment(category, punishment);
 	}
 	
 	// Convenience method to a run a command from the player's position but as op
@@ -373,6 +408,7 @@ public final class TabooTrickler {
 			{
 				runCommand(player, "summon zombie ~ ~ ~ {IsBaby:1b,active_effects:[{id:\"minecraft:invisibility\",duration:20000000,show_icon:0b}]}");
 			}
+			
 			return true;
 		}).setMessage("RELEASE THE BABY!!");
 		
@@ -429,7 +465,7 @@ public final class TabooTrickler {
 			}
 			
 			return true;
-		}).reset(TimeUnit.MINUTES, 5, player ->
+		}).addReset(TimeUnit.SECONDS, 10, player ->
 		{
 			player.getAttribute(Attributes.MAX_HEALTH).setBaseValue(ServerPlayer.MAX_HEALTH);
 			player.displayClientMessage(Component.literal("Reset your max hearts to normal"), false);

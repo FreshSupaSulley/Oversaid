@@ -9,15 +9,25 @@ public enum TricklerCategory {
 	
 	GOOD(1, "Good"), BAD(29, "Bad"), VERY_BAD(50, "Very Bad"), CRUSHING(20, "Crushing");
 	
-	final String fancyName;
-	final int chance;
-	final List<TSPunishment> server = new ArrayList<>();
-	final List<TCPunishment> client = new ArrayList<>();
+	private final String fancyName;
+	private final int chance;
+	
+	public final List<SidedPunishment<?>> punishments = new ArrayList<>();
 	
 	TricklerCategory(int chance, String fancyName)
 	{
 		this.chance = chance;
 		this.fancyName = fancyName;
+	}
+	
+	public String getFancyName()
+	{
+		return fancyName;
+	}
+	
+	public int getChance()
+	{
+		return chance;
 	}
 	
 	public static TricklerCategory random(TricklerCategory... exclude)
@@ -43,15 +53,5 @@ public enum TricklerCategory {
 		
 		// This should never happen
 		throw new IllegalStateException("Failed to select a TricklerCategory from the pool");
-	}
-	
-	public void addServerPunishment(TSPunishment punishment)
-	{
-		server.add(punishment);
-	}
-	
-	public void addClientPunishment(TCPunishment punishment)
-	{
-		client.add(punishment);
 	}
 }

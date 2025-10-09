@@ -1,4 +1,4 @@
-package io.github.freshsupasulley.taboo_trickler;
+package io.github.freshsupasulley.taboo_trickler.plugin;
 
 import io.github.freshsupasulley.censorcraft.api.CensorCraftPlugin;
 import io.github.freshsupasulley.censorcraft.api.CensorCraftServerAPI;
@@ -7,6 +7,8 @@ import io.github.freshsupasulley.censorcraft.api.events.PluginRegistration;
 import io.github.freshsupasulley.censorcraft.api.events.server.ChatTabooEvent;
 import io.github.freshsupasulley.censorcraft.api.events.server.ReceiveTranscription;
 import io.github.freshsupasulley.censorcraft.api.events.server.ServerConfigEvent;
+import io.github.freshsupasulley.taboo_trickler.forge.Config;
+import io.github.freshsupasulley.taboo_trickler.forge.TabooTrickler;
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
@@ -21,7 +23,7 @@ import java.util.regex.Pattern;
 @Mod.EventBusSubscriber(modid = TabooTrickler.MODID)
 public class TTPlugin implements CensorCraftPlugin {
 	
-	// Functionality to add most said words to taboos
+	// Stuff used to add most said words to taboos
 	private static final int MIN_WORD_REPETITIONS = 5;
 	private static final long REPETITION_UPDATE_TIME = 2000 * 60; // recheck every 2 minutes
 	private static final Map<String, Integer> WORD_COUNTS = new HashMap<>();
@@ -39,7 +41,18 @@ public class TTPlugin implements CensorCraftPlugin {
 		registration.registerEvent(ServerConfigEvent.class, (event) -> serverAPI = event.getAPI());
 		
 		// Track the most said words
-		registration.registerEvent(ReceiveTranscription.class, this::onReceiveTranscription);
+		registration.registerEvent(ReceiveTranscription.class, (event) ->
+		{
+			// Break it up into words
+			var pattern = Pattern.compile("\\b\\w+\\b");
+			var matcher = pattern.matcher(event.getText().toLowerCase());
+			
+			while(matcher.find())
+			{
+				String match = matcher.group();
+				WORD_COUNTS.merge(match, 1, Integer::sum);
+			}
+		});
 		
 		// Add some more detail when they're punished
 		registration.registerEvent(ChatTabooEvent.class, event ->
@@ -48,25 +61,12 @@ public class TTPlugin implements CensorCraftPlugin {
 			
 			if(punishment != null)
 			{
-				event.setText(Component.empty().append((Component) event.getText()).append(" (severity: ").append(Component.literal(punishment.getCategory().fancyName).withStyle(style -> style.withBold(true))).append(")"));
+				event.setText(Component.empty().append((Component) event.getText()).append(" (severity: ").append(Component.literal(punishment.getCategory().getFancyName()).withStyle(style -> style.withBold(true))).append(")"));
 			}
 		});
 		
 		// Our server
 		registration.registerPunishment(TricklerPunishment.class);
-	}
-	
-	public void onReceiveTranscription(ReceiveTranscription event)
-	{
-		// Break it up into words
-		var pattern = Pattern.compile("\\b\\w+\\b");
-		var matcher = pattern.matcher(event.getText().toLowerCase());
-		
-		while(matcher.find())
-		{
-			String match = matcher.group();
-			WORD_COUNTS.merge(match, 1, Integer::sum);
-		}
 	}
 	
 	@SubscribeEvent
