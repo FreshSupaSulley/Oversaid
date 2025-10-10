@@ -1,5 +1,6 @@
 package io.github.freshsupasulley.taboo_trickler;
 
+import io.github.freshsupasulley.taboo_trickler.forge.TabooTrickler;
 import net.minecraft.network.chat.Component;
 
 import java.util.concurrent.TimeUnit;
@@ -35,14 +36,20 @@ public abstract class SidedPunishment<T> {
 	public boolean punish(T context)
 	{
 		// If this punishment passed
-		if(execute.test(context))
+		try
 		{
-			if(message != null)
+			if(execute.test(context))
 			{
-				displayClientMessage(context, Component.literal(message));
+				if(message != null)
+				{
+					displayClientMessage(context, Component.literal(message));
+				}
+				
+				return true;
 			}
-			
-			return true;
+		} catch(Exception e)
+		{
+			TabooTrickler.LOGGER.warn("An error occurred executing trickler punishment", e);
 		}
 		
 		return false;
@@ -55,12 +62,19 @@ public abstract class SidedPunishment<T> {
 	
 	public void fireReset(T context)
 	{
-		resetter.accept(context);
+		try
+		{
+			resetter.accept(context);
+		} catch(Exception e)
+		{
+			TabooTrickler.LOGGER.error("Failed to execute punishment reset", e);
+		}
 	}
 	
 	public long calculateResetTime()
 	{
-		if(!hasReset()) throw new IllegalStateException("This punishment doesn't have a reset function");
+		if(!hasReset())
+			throw new IllegalStateException("This punishment doesn't have a reset function");
 		return System.currentTimeMillis() + unit.toMillis(duration);
 	}
 	
