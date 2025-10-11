@@ -3,13 +3,13 @@ package io.github.freshsupasulley.taboo_trickler;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
-import java.util.function.Predicate;
+import java.util.concurrent.TimeUnit;
 
-public class ServerPunishment extends SidedPunishment<ServerPlayer> {
+public abstract class ServerPunishment extends SidedPunishment<ServerPlayer> {
 	
-	public ServerPunishment(TricklerCategory category, Predicate<ServerPlayer> punishment)
+	public ServerPunishment(TricklerCategory category, String message, TimeUnit unit, long duration)
 	{
-		super(true, category, punishment);
+		super(true, category, message, unit, duration);
 	}
 	
 	@Override

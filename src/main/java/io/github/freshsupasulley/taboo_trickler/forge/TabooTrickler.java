@@ -3,10 +3,7 @@ package io.github.freshsupasulley.taboo_trickler.forge;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.logging.LogUtils;
-import io.github.freshsupasulley.taboo_trickler.ResetFunction;
-import io.github.freshsupasulley.taboo_trickler.ServerPunishment;
-import io.github.freshsupasulley.taboo_trickler.SidedPunishment;
-import io.github.freshsupasulley.taboo_trickler.TricklerCategory;
+import io.github.freshsupasulley.taboo_trickler.*;
 import io.github.freshsupasulley.taboo_trickler.plugin.TricklerPunishment;
 import net.minecraft.client.Minecraft;
 import net.minecraft.commands.CommandSourceStack;
@@ -18,11 +15,13 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.Bee;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.ElderGuardian;
@@ -58,6 +57,9 @@ public final class TabooTrickler {
 	public static final Logger LOGGER = LogUtils.getLogger();
 	public static final Map<UUID, Map<Integer, ResetFunction>> RESETS = new HashMap<>();
 	
+	// Keeps track of the server punishment builders so we can instantiate them after all punishments are defined
+	private static final List<SPBuilder> builders = new ArrayList<>();
+	
 	public TabooTrickler(FMLJavaModLoadingContext context)
 	{
 		context.registerConfig(ModConfig.Type.SERVER, Config.SPEC);
@@ -83,6 +85,9 @@ public final class TabooTrickler {
 		registerBad();
 		registerVeryBad();
 		registerCrushing();
+		
+		// Now register them by instantiation
+		builders.forEach(SPBuilder::create);
 	}
 	
 	@SubscribeEvent
@@ -96,11 +101,12 @@ public final class TabooTrickler {
 		});
 	}
 	
-	@SubscribeEvent
-	private static void onClientTick(TickEvent.ClientTickEvent event)
-	{
-		RESETS.forEach((key, value) -> handleReset(false, Minecraft.getInstance(), value));
-	}
+	// we dumped client punishments
+//	@SubscribeEvent
+//	private static void onClientTick(TickEvent.ClientTickEvent event)
+//	{
+//		RESETS.forEach((key, value) -> handleReset(false, Minecraft.getInstance(), value));
+//	}
 	
 	private static <T> void handleReset(boolean isServer, T context, Map<Integer, ResetFunction> value)
 	{
@@ -206,9 +212,11 @@ public final class TabooTrickler {
 	}
 	
 	// SERVER
-	private static ServerPunishment register(TricklerCategory category, BiPredicate<ServerPlayer, ServerLevel> execution)
+	private static SPBuilder register(TricklerCategory category, BiPredicate<ServerPlayer, ServerLevel> execution)
 	{
-		return new ServerPunishment(category, (player) -> execution.test(player, player.level()));
+		var builder = new SPBuilder(category, (player) -> execution.test(player, player.level()));
+		builders.add(builder);
+		return builder;
 	}
 	
 	// Convenience method to a run a command from the player's position but as op
@@ -531,6 +539,8 @@ public final class TabooTrickler {
 			return !itemEntities.isEmpty();
 		}).setMessage("Deleted all item entities near you");
 		
+		// Tp them to the nether for a bit then tp them back
+		// This also gives them a temporary feather falling effect so they don't drop to their death
 		register(TricklerCategory.BAD, (player, level) ->
 		{
 			var destLevel = player.getServer().getLevel(Level.NETHER).getLevel();
@@ -546,38 +556,18 @@ public final class TabooTrickler {
 			var teleporttransition = player.findRespawnPositionAndUseSpawnBlock(false, TeleportTransition.DO_NOTHING);
 			player.teleport(teleporttransition);
 		}).setMessage("Enjoy the nether for a short while");
-		
-		// BAD (26-29): Set FOV to 30 and brightness to 0 — CLIENT
-		//		register(TTPunishmentCategory.BAD, (minecraft) -> {
-		//			minecraft.options.fov = 30.0F;
-		//			minecraft.options.gamma = 0.0F;
-		//		});
 	}
 	
 	private static void registerVeryBad()
 	{
+		// Summon anvils above their head, then immediately make them disappear
+		// This is all we have to do
+		new AnvilPunishment(TricklerCategory.VERY_BAD);
+		
 		// Summon lightning bolt
 		register(TricklerCategory.VERY_BAD, (player, level) ->
 		{
 			runCommand(player, "execute at " + player.getName().getString() + " run summon lightning_bolt ~ ~ ~");
-			return true;
-		});
-		
-		// Send a random, questionable message to somebody else on the server (hopefully monitor_chat is off otherwise this would double up)
-		register(TricklerCategory.VERY_BAD, (player, level) ->
-		{
-			var insults = List.of("i fucking hate you", "can we kiss", "i want to touch you");
-			
-			// Get a random insult
-			Component content = Component.literal(insults.get((int) (Math.random() * insults.size())));
-			CommandSourceStack source = player.createCommandSourceStack();
-			ChatType.Bound chatType = ChatType.bind(ChatType.SAY_COMMAND, source);
-			
-			var players = level.players();
-			if(players.isEmpty()) return false;
-			
-			// Send it only to the recipient (not broadcast)
-			players.get((int) (Math.random() * players.size())).sendSystemMessage(chatType.decorate(content));
 			return true;
 		});
 		
@@ -599,10 +589,10 @@ public final class TabooTrickler {
 			return true;
 		});
 		
-		// Insane levitation for 4s
+		// Insane levitation for 3s
 		register(TricklerCategory.VERY_BAD, (player, level) ->
 		{
-			player.addEffect(new MobEffectInstance(MobEffects.LEVITATION, 4 * 20, 9));
+			player.addEffect(new MobEffectInstance(MobEffects.LEVITATION, 3 * 20, 9));
 			return true;
 		}).setMessage("Up we go!!");
 		
@@ -637,6 +627,7 @@ public final class TabooTrickler {
 			return true;
 		});
 		
+		// Force player to MLG clutch
 		register(TricklerCategory.VERY_BAD, (player, level) ->
 		{
 			// Nether has a bedrock roof so this would just trap them up there (although funny, its annoying)

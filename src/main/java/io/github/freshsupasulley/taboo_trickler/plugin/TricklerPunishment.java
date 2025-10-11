@@ -4,7 +4,6 @@ import io.github.freshsupasulley.censorcraft.api.punishments.Punishment;
 import io.github.freshsupasulley.taboo_trickler.SidedPunishment;
 import io.github.freshsupasulley.taboo_trickler.TricklerCategory;
 import io.github.freshsupasulley.taboo_trickler.forge.TabooTrickler;
-import net.minecraft.client.Minecraft;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 
@@ -68,19 +67,9 @@ public class TricklerPunishment extends Punishment {
 		}
 	}
 	
-	@Override
-	public void punishClientSide()
-	{
-		if(category.punishments.get(punishmentIndex).isServerSide())
-			return;
-		
-		// This will attempt to use the same punishment the server punish code tried to use
-		punishInternal(Minecraft.getInstance(), (minecraft) -> minecraft.player.getUUID());
-	}
-	
 	private <T> void punishInternal(T context, Function<T, UUID> uuidGetter)
 	{
-		// The OG punishment selected indicates the sidedness
+		// The first punishment selected on instantiation indicates the sidedness
 		boolean isServerSide = category.punishments.get(punishmentIndex).isServerSide();
 		String sideLog = (isServerSide ? "server" : "client") + "-side";
 		final int maxAttempts = 10;

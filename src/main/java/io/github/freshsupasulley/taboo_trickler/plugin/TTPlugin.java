@@ -12,6 +12,7 @@ import io.github.freshsupasulley.taboo_trickler.forge.TabooTrickler;
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
+import net.minecraftforge.fml.LogicalSide;
 import net.minecraftforge.fml.common.Mod;
 
 import java.util.HashMap;
@@ -72,6 +73,9 @@ public class TTPlugin implements CensorCraftPlugin {
 	@SubscribeEvent
 	public static void onLevelTick(TickEvent.PlayerTickEvent.Post event)
 	{
+		if(event.side != LogicalSide.SERVER)
+			return;
+		
 		List<String> taboos = serverAPI.getServerConfig().get("global_taboos");
 		long now = System.currentTimeMillis();
 		

@@ -4,26 +4,35 @@ import io.github.freshsupasulley.taboo_trickler.forge.TabooTrickler;
 import net.minecraft.network.chat.Component;
 
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
-import java.util.function.Predicate;
 
 public abstract class SidedPunishment<T> {
 	
 	private final boolean isServer;
 	
-	private final Predicate<T> execute;
-	private Consumer<T> resetter;
 	private String message;
 	
 	// If punishments require resetting their effects at a later time
 	private TimeUnit unit;
 	private long duration;
 	
-	public SidedPunishment(boolean isServer, TricklerCategory category, Predicate<T> punishment)
+	public SidedPunishment(boolean isServer, TricklerCategory category, String message, TimeUnit unit, long duration)
 	{
 		this.isServer = isServer;
-		this.execute = punishment;
+		this.message = message;
+		this.unit = unit;
+		this.duration = duration;
+		
 		category.punishments.add(this);
+	}
+	
+	public SidedPunishment(boolean isServer, TricklerCategory category, String message)
+	{
+		this(isServer, category, message, null, 0);
+	}
+	
+	public final boolean hasReset()
+	{
+		return unit != null;
 	}
 	
 	public final boolean isServerSide()
@@ -33,12 +42,12 @@ public abstract class SidedPunishment<T> {
 	
 	abstract void displayClientMessage(T context, Component message);
 	
-	public boolean punish(T context)
+	public final boolean punish(T context)
 	{
 		// If this punishment passed
 		try
 		{
-			if(execute.test(context))
+			if(internalPunish(context))
 			{
 				if(message != null)
 				{
@@ -55,40 +64,28 @@ public abstract class SidedPunishment<T> {
 		return false;
 	}
 	
-	public boolean hasReset()
-	{
-		return resetter != null;
-	}
+	protected abstract boolean internalPunish(T context);
 	
-	public void fireReset(T context)
+	public final void fireReset(T context)
 	{
+		if(!hasReset()) throw new IllegalStateException("This punishment doesn't have a reset");
+		
 		try
 		{
-			resetter.accept(context);
+			internalReset(context);
 		} catch(Exception e)
 		{
 			TabooTrickler.LOGGER.error("Failed to execute punishment reset", e);
 		}
 	}
 	
-	public long calculateResetTime()
+	protected void internalReset(T context)
 	{
-		if(!hasReset())
-			throw new IllegalStateException("This punishment doesn't have a reset function");
+	}
+	
+	public final long calculateResetTime()
+	{
+		if(!hasReset()) throw new IllegalStateException("This punishment doesn't have a reset");
 		return System.currentTimeMillis() + unit.toMillis(duration);
-	}
-	
-	public SidedPunishment<?> setMessage(String message)
-	{
-		this.message = message;
-		return this;
-	}
-	
-	public SidedPunishment<?> addReset(TimeUnit unit, long time, Consumer<T> resetter)
-	{
-		this.unit = unit;
-		this.duration = time;
-		this.resetter = resetter;
-		return this;
 	}
 }
