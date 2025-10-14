@@ -5,18 +5,18 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
-public enum TricklerCategory {
+public enum OversaidCategory {
 	
-	GOOD(1, "Good"), BAD(29, "Bad"), VERY_BAD(50, "Very Bad"), CRUSHING(20, "Crushing");
+	GOOD(1, "Good"), BAD(40, "Bad"), VERY_BAD(20, "Very Bad"), CRUSHING(5, "Crushing");
 	
 	private final String fancyName;
-	private final int chance;
+	private final int weight;
 	
 	public final List<SidedPunishment<?>> punishments = new ArrayList<>();
 	
-	TricklerCategory(int chance, String fancyName)
+	OversaidCategory(int chance, String fancyName)
 	{
-		this.chance = chance;
+		this.weight = chance;
 		this.fancyName = fancyName;
 	}
 	
@@ -25,12 +25,7 @@ public enum TricklerCategory {
 		return fancyName;
 	}
 	
-	public int getChance()
-	{
-		return chance;
-	}
-	
-	public static TricklerCategory random(TricklerCategory... exclude)
+	public static OversaidCategory random(OversaidCategory... exclude)
 	{
 		var excluded = Set.of(exclude);
 		
@@ -40,13 +35,13 @@ public enum TricklerCategory {
 		if(pool.isEmpty())
 			throw new IllegalStateException("Tried to select a random category but excluded everything");
 		
-		int total = pool.stream().mapToInt(c -> c.chance).sum();
+		int total = pool.stream().mapToInt(c -> c.weight).sum();
 		int pick = (int) (Math.random() * total);
 		int cumulative = 0;
 		
 		for(var cat : pool)
 		{
-			cumulative += cat.chance;
+			cumulative += cat.weight;
 			if(pick < cumulative)
 				return cat;
 		}

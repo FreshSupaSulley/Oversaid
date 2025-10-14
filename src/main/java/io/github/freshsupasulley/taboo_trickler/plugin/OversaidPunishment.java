@@ -2,28 +2,28 @@ package io.github.freshsupasulley.taboo_trickler.plugin;
 
 import io.github.freshsupasulley.censorcraft.api.punishments.Punishment;
 import io.github.freshsupasulley.taboo_trickler.SidedPunishment;
-import io.github.freshsupasulley.taboo_trickler.TricklerCategory;
-import io.github.freshsupasulley.taboo_trickler.forge.TabooTrickler;
+import io.github.freshsupasulley.taboo_trickler.OversaidCategory;
+import io.github.freshsupasulley.taboo_trickler.forge.Oversaid;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 
 import java.util.UUID;
 import java.util.function.Function;
 
-public class TricklerPunishment extends Punishment {
+public class OversaidPunishment extends Punishment {
 	
-	public static String NAME = "trickler";
+	public static final String PUNISHMENT_NAME = "trickler";
 	
-	private TricklerCategory category;
+	private OversaidCategory category;
 	private int punishmentIndex;
 	private boolean abandonOnFail;
 	
 	// Required
-	public TricklerPunishment()
+	public OversaidPunishment()
 	{
-		// Pick a random punishment out of this category
-		var list = TricklerCategory.random().punishments;
-		this.punishmentIndex = (int) (Math.random() * list.size());
+		// Pick a random punishment out of a random category
+		this.category = OversaidCategory.random();
+		this.punishmentIndex = (int) (Math.random() * category.punishments.size());
 	}
 	
 	/**
@@ -33,14 +33,14 @@ public class TricklerPunishment extends Punishment {
 	 *
 	 * @param punishmentIndex {@link SidedPunishment} index
 	 */
-	public TricklerPunishment(TricklerCategory category, int punishmentIndex)
+	public OversaidPunishment(OversaidCategory category, int punishmentIndex)
 	{
 		this.abandonOnFail = true;
 		this.category = category;
 		this.punishmentIndex = punishmentIndex;
 	}
 	
-	public TricklerCategory getCategory()
+	public OversaidCategory getCategory()
 	{
 		return category;
 	}
@@ -48,7 +48,7 @@ public class TricklerPunishment extends Punishment {
 	@Override
 	public String getId()
 	{
-		return NAME;
+		return PUNISHMENT_NAME;
 	}
 	
 	@Override
@@ -83,7 +83,7 @@ public class TricklerPunishment extends Punishment {
 			{
 				var punishment = category.punishments.get(punishmentIndex);
 				
-				TabooTrickler.LOGGER.debug("Attempting {} to punish from category '{}'", sideLog, category);
+				Oversaid.LOGGER.debug("Attempting {} to punish from category '{}'", sideLog, category);
 				
 				//noinspection unchecked
 				if(((SidedPunishment<T>) punishment).punish(context))
@@ -91,7 +91,7 @@ public class TricklerPunishment extends Punishment {
 					if(punishment.hasReset())
 					{
 						UUID uuid = uuidGetter.apply(context);
-						TabooTrickler.addReset(uuid, punishmentIndex, punishment);
+						Oversaid.addReset(uuid, punishmentIndex, punishment);
 					}
 					
 					punished = true;
@@ -99,18 +99,18 @@ public class TricklerPunishment extends Punishment {
 				}
 				else
 				{
-					TabooTrickler.LOGGER.info("{} punishment failed", category);
+					Oversaid.LOGGER.info("{} punishment failed", category);
 					
 					if(abandonOnFail)
 					{
-						TabooTrickler.LOGGER.info("Not trying another punishment");
+						Oversaid.LOGGER.info("Not trying another punishment");
 						break;
 					}
 				}
 			}
 			
 			// Pick another category and punishment since this didn't work
-			this.category = TricklerCategory.random();
+			this.category = OversaidCategory.random();
 			var list = category.punishments.stream().filter(p -> p.isServerSide() == isServerSide).toList();
 			
 			if(list.isEmpty())
@@ -128,7 +128,7 @@ public class TricklerPunishment extends Punishment {
 		{
 			if(!abandonOnFail)
 			{
-				TabooTrickler.LOGGER.error("Attempted a {} punishment {} times and always failed", sideLog, maxAttempts);
+				Oversaid.LOGGER.error("Attempted a {} punishment {} times and always failed", sideLog, maxAttempts);
 			}
 			
 			// Pass to caller

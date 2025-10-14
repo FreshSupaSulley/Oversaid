@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit;
 
 public abstract class ServerPunishment extends SidedPunishment<ServerPlayer> {
 	
-	public ServerPunishment(TricklerCategory category, String message, TimeUnit unit, long duration)
+	public ServerPunishment(OversaidCategory category, String message, TimeUnit unit, long duration)
 	{
 		super(true, category, message, unit, duration);
 	}

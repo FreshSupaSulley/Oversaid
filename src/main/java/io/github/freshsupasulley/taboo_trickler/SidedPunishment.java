@@ -1,6 +1,6 @@
 package io.github.freshsupasulley.taboo_trickler;
 
-import io.github.freshsupasulley.taboo_trickler.forge.TabooTrickler;
+import io.github.freshsupasulley.taboo_trickler.forge.Oversaid;
 import net.minecraft.network.chat.Component;
 
 import java.util.concurrent.TimeUnit;
@@ -8,14 +8,11 @@ import java.util.concurrent.TimeUnit;
 public abstract class SidedPunishment<T> {
 	
 	private final boolean isServer;
+	private final String message;
+	private final TimeUnit unit;
+	private final long duration;
 	
-	private String message;
-	
-	// If punishments require resetting their effects at a later time
-	private TimeUnit unit;
-	private long duration;
-	
-	public SidedPunishment(boolean isServer, TricklerCategory category, String message, TimeUnit unit, long duration)
+	public SidedPunishment(boolean isServer, OversaidCategory category, String message, TimeUnit unit, long duration)
 	{
 		this.isServer = isServer;
 		this.message = message;
@@ -25,7 +22,7 @@ public abstract class SidedPunishment<T> {
 		category.punishments.add(this);
 	}
 	
-	public SidedPunishment(boolean isServer, TricklerCategory category, String message)
+	public SidedPunishment(boolean isServer, OversaidCategory category, String message)
 	{
 		this(isServer, category, message, null, 0);
 	}
@@ -51,14 +48,15 @@ public abstract class SidedPunishment<T> {
 			{
 				if(message != null)
 				{
-					displayClientMessage(context, Component.literal(message));
+					// Make it red to draw more attention
+					displayClientMessage(context, Component.literal(message).withColor(0xFF0000));
 				}
 				
 				return true;
 			}
 		} catch(Exception e)
 		{
-			TabooTrickler.LOGGER.warn("An error occurred executing trickler punishment", e);
+			Oversaid.LOGGER.warn("An error occurred executing trickler punishment", e);
 		}
 		
 		return false;
@@ -75,7 +73,7 @@ public abstract class SidedPunishment<T> {
 			internalReset(context);
 		} catch(Exception e)
 		{
-			TabooTrickler.LOGGER.error("Failed to execute punishment reset", e);
+			Oversaid.LOGGER.error("Failed to execute punishment reset", e);
 		}
 	}
 	

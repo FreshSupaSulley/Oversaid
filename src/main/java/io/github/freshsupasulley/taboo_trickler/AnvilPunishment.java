@@ -1,6 +1,6 @@
 package io.github.freshsupasulley.taboo_trickler;
 
-import io.github.freshsupasulley.taboo_trickler.forge.TabooTrickler;
+import io.github.freshsupasulley.taboo_trickler.forge.Oversaid;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerPlayer;
@@ -16,7 +16,7 @@ public class AnvilPunishment extends ServerPunishment {
 	
 	private List<Entity> anvils = new ArrayList<>();
 	
-	public AnvilPunishment(TricklerCategory category)
+	public AnvilPunishment(OversaidCategory category)
 	{
 		super(category, "Heads up", TimeUnit.SECONDS, 3);
 	}
@@ -42,8 +42,8 @@ public class AnvilPunishment extends ServerPunishment {
 				{
 					anvils++;
 					var entity = FallingBlockEntity.fall(level, targetPos, Blocks.ANVIL.defaultBlockState());
-					// ripped from the protected method
-					entity.setHurtsEntities(2.0F, 40);
+					// This might need tweaking
+					entity.setHurtsEntities(1.4F, 40);
 					
 					// Add to list so we can remove them later
 					this.anvils.add(entity);
@@ -59,13 +59,13 @@ public class AnvilPunishment extends ServerPunishment {
 	{
 		var level = player.level();
 		
-		TabooTrickler.LOGGER.info("{} anvils will be deleted", anvils.size());
+		Oversaid.LOGGER.info("{} anvils will be deleted", anvils.size());
 		
 		this.anvils.stream().forEach(entity ->
 		{
 			var pos = entity.blockPosition();
 			
-			TabooTrickler.LOGGER.info("Deletion status on {}: {}", pos, level.setBlockAndUpdate(pos, Blocks.AIR.defaultBlockState()));
+			Oversaid.LOGGER.info("Deletion status on {}: {}", pos, level.setBlockAndUpdate(pos, Blocks.AIR.defaultBlockState()));
 			
 			// Also spawn a pretty ass particle cloud
 			level.sendParticles(ParticleTypes.CLOUD, entity.getX(), pos.above().getY(), entity.getZ(), 10, // particle count (0 does individual spawning?)

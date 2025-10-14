@@ -8,7 +8,7 @@ import java.util.function.Predicate;
 
 public final class SPBuilder {
 	
-	private final TricklerCategory category;
+	private final OversaidCategory category;
 	private final Predicate<ServerPlayer> punishment;
 	private Consumer<ServerPlayer> resetter;
 	private String message;
@@ -17,7 +17,7 @@ public final class SPBuilder {
 	private TimeUnit unit;
 	private long duration;
 	
-	public SPBuilder(TricklerCategory category, Predicate<ServerPlayer> punishment)
+	public SPBuilder(OversaidCategory category, Predicate<ServerPlayer> punishment)
 	{
 		this.category = category;
 		this.punishment = punishment;

@@ -4,37 +4,33 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.logging.LogUtils;
 import io.github.freshsupasulley.taboo_trickler.*;
-import io.github.freshsupasulley.taboo_trickler.plugin.TricklerPunishment;
-import net.minecraft.client.Minecraft;
-import net.minecraft.commands.CommandSourceStack;
+import io.github.freshsupasulley.taboo_trickler.plugin.OversaidPlugin;
+import io.github.freshsupasulley.taboo_trickler.plugin.OversaidPunishment;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.network.chat.ChatType;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.Bee;
-import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
-import net.minecraft.world.entity.monster.ElderGuardian;
+import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.WallTorchBlock;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.portal.TeleportTransition;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.RegisterCommandsEvent;
@@ -49,24 +45,24 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiPredicate;
 
-@Mod(TabooTrickler.MODID)
-@Mod.EventBusSubscriber(modid = TabooTrickler.MODID)
-public final class TabooTrickler {
+@Mod(Oversaid.MODID)
+@Mod.EventBusSubscriber(modid = Oversaid.MODID)
+public final class Oversaid {
 	
-	public static final String MODID = "taboo_trickler";
+	public static final String MODID = "oversaid";
 	public static final Logger LOGGER = LogUtils.getLogger();
 	public static final Map<UUID, Map<Integer, ResetFunction>> RESETS = new HashMap<>();
 	
 	// Keeps track of the server punishment builders so we can instantiate them after all punishments are defined
 	private static final List<SPBuilder> builders = new ArrayList<>();
 	
-	public TabooTrickler(FMLJavaModLoadingContext context)
+	public Oversaid(FMLJavaModLoadingContext context)
 	{
 		context.registerConfig(ModConfig.Type.SERVER, Config.SPEC);
 		
 		// Register our punishments
 		// The only good punishment (very rare)
-		register(TricklerCategory.GOOD, (player, level) ->
+		register(OversaidCategory.GOOD, (player, level) ->
 		{
 			BlockPos pos = player.blockPosition();
 			
@@ -101,13 +97,6 @@ public final class TabooTrickler {
 		});
 	}
 	
-	// we dumped client punishments
-//	@SubscribeEvent
-//	private static void onClientTick(TickEvent.ClientTickEvent event)
-//	{
-//		RESETS.forEach((key, value) -> handleReset(false, Minecraft.getInstance(), value));
-//	}
-	
 	private static <T> void handleReset(boolean isServer, T context, Map<Integer, ResetFunction> value)
 	{
 		final long time = System.currentTimeMillis();
@@ -140,68 +129,85 @@ public final class TabooTrickler {
 		var dispatcher = event.getDispatcher();
 		
 		// For testing our punishments
-		dispatcher.register(Commands.literal("trickler").requires(source -> source.hasPermission(4)).then(Commands.argument("category", StringArgumentType.word()).suggests((ctx, builder) ->
-		{
-			for(var cat : TricklerCategory.values())
-			{
-				builder.suggest(cat.name().toLowerCase());
-			}
-			return builder.buildFuture();
-		}).then(Commands.argument("index", IntegerArgumentType.integer(0)).executes(ctx ->
-		{
-			String categoryName = StringArgumentType.getString(ctx, "category").toUpperCase();
-			int index = IntegerArgumentType.getInteger(ctx, "index");
-			
-			// Get the category
-			TricklerCategory category;
-			
-			try
-			{
-				category = TricklerCategory.valueOf(categoryName);
-			} catch(IllegalArgumentException e)
-			{
-				ctx.getSource().sendFailure(Component.literal("Invalid category: " + categoryName));
-				return 0;
-			}
-			
-			// Get the punishment
-			ServerPlayer player = ctx.getSource().getPlayerOrException();
-			
-			if(index < 0 || index >= category.punishments.size())
-			{
-				ctx.getSource().sendFailure(Component.literal("Invalid index (must be within [0-" + (category.punishments.size() - 1) + "]"));
-				return 0;
-			}
-			
-			if(category.punishments.get(index).isServerSide())
-			{
-				try
+		dispatcher.register(Commands.literal("trickler").requires(source -> source.hasPermission(4))
+				// existing category/index branch
+				// new "add" subcommand that accepts a string (allows spaces)
+//				.then(Commands.literal("add").then(Commands.argument("taboo", StringArgumentType.greedyString()).executes(ctx ->
+//				{
+//					String text = StringArgumentType.getString(ctx, "taboo").trim();
+//
+//					// Add to list
+//					var punishment = OversaidPlugin.getOversaidPunishment();
+//					List<String> taboos = punishment.getTaboos();
+//					taboos.add(text);
+//					punishment.config.set("taboo", taboos);
+//					OversaidPlugin.serverAPI.getServerConfig().save();
+//
+//					ctx.getSource().sendSuccess(() -> Component.literal("Added ").append(Component.literal(text).withStyle(style -> style.withBold(true))).append(Component.literal(" to the trickler taboos")), true);
+//					return 0;
+//				})))
+				.then(Commands.literal("punish").then(Commands.argument("category", StringArgumentType.word()).suggests((ctx, builder) ->
 				{
-					new TricklerPunishment(category, index).punish(player);
-				} catch(RuntimeException e)
+					for(var cat : OversaidCategory.values())
+					{
+						builder.suggest(cat.name().toLowerCase());
+					}
+					return builder.buildFuture();
+				}).then(Commands.argument("index", IntegerArgumentType.integer(0)).executes(ctx ->
 				{
-					ctx.getSource().sendFailure(Component.literal("Failed executing server punishment"));
-					return 0;
-				}
-				
-				ctx.getSource().sendSuccess(() -> Component.literal("Executed server punishment"), false);
-				return 1;
-			}
-			else
-			{
-				try
-				{
-					new TricklerPunishment(category, index).punishClientSide();
-				} catch(RuntimeException e)
-				{
-					ctx.getSource().sendFailure(Component.literal("Failed executing client punishment"));
-					return 0;
-				}
-				
-				ctx.getSource().sendSuccess(() -> Component.literal("Executed client punishment"), false);
-				return 1;
-			}
-		}))));
+					String categoryName = StringArgumentType.getString(ctx, "category").toUpperCase();
+					int index = IntegerArgumentType.getInteger(ctx, "index");
+					
+					// Get the category
+					OversaidCategory category;
+					
+					try
+					{
+						category = OversaidCategory.valueOf(categoryName);
+					} catch(IllegalArgumentException e)
+					{
+						ctx.getSource().sendFailure(Component.literal("Invalid category: " + categoryName));
+						return 0;
+					}
+					
+					// Get the punishment
+					ServerPlayer player = ctx.getSource().getPlayerOrException();
+					
+					if(index < 0 || index >= category.punishments.size())
+					{
+						ctx.getSource().sendFailure(Component.literal("Invalid index (must be within [0-" + (category.punishments.size() - 1) + "]"));
+						return 0;
+					}
+					
+					if(category.punishments.get(index).isServerSide())
+					{
+						try
+						{
+							new OversaidPunishment(category, index).punish(player);
+						} catch(RuntimeException e)
+						{
+							ctx.getSource().sendFailure(Component.literal("Failed executing server punishment"));
+							return 0;
+						}
+						
+						ctx.getSource().sendSuccess(() -> Component.literal("Executed server punishment"), false);
+						return 1;
+					}
+					else
+					{
+						try
+						{
+							new OversaidPunishment(category, index).punishClientSide();
+						} catch(RuntimeException e)
+						{
+							ctx.getSource().sendFailure(Component.literal("Failed executing client punishment"));
+							return 0;
+						}
+						
+						ctx.getSource().sendSuccess(() -> Component.literal("Executed client punishment"), false);
+						return 1;
+					}
+				})))));
 	}
 	
 	public static void addReset(UUID player, int index, SidedPunishment<?> selected)
@@ -212,7 +218,7 @@ public final class TabooTrickler {
 	}
 	
 	// SERVER
-	private static SPBuilder register(TricklerCategory category, BiPredicate<ServerPlayer, ServerLevel> execution)
+	private static SPBuilder register(OversaidCategory category, BiPredicate<ServerPlayer, ServerLevel> execution)
 	{
 		var builder = new SPBuilder(category, (player) -> execution.test(player, player.level()));
 		builders.add(builder);
@@ -223,13 +229,7 @@ public final class TabooTrickler {
 	private static void runCommand(ServerPlayer player, String command)
 	{
 		var server = player.getServer();
-		var stack = server.createCommandSourceStack().withPermission(2).withPosition(player.blockPosition().getCenter()).withRotation(player.getRotationVector());
-		
-		// If the user wants to silence the commands
-		if(Config.SUPPRESS_COMMAND_OUTPUT.get())
-		{
-			stack = stack.withSuppressedOutput();
-		}
+		var stack = server.createCommandSourceStack().withPermission(2).withPosition(player.blockPosition().getCenter()).withRotation(player.getRotationVector()).withSuppressedOutput();
 		
 		server.getCommands().performPrefixedCommand(stack, command);
 	}
@@ -237,7 +237,7 @@ public final class TabooTrickler {
 	private static void registerBad()
 	{
 		// Poison and weakness II for 30s
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			player.addEffect(new MobEffectInstance(MobEffects.POISON, 30 * 20, 1));
 			player.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, 30 * 20, 1));
@@ -245,29 +245,30 @@ public final class TabooTrickler {
 		});
 		
 		// Slowness + blindness
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
-			player.addEffect(new MobEffectInstance(MobEffects.SLOWNESS, 30 * 20, 4));
-			player.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, 30 * 20, 0));
+			final int seconds = 20;
+			player.addEffect(new MobEffectInstance(MobEffects.SLOWNESS, seconds * 20, 4));
+			player.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, seconds * 20, 0));
 			return true;
 		});
 		
 		// Mining fatigue III
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			player.addEffect(new MobEffectInstance(MobEffects.MINING_FATIGUE, 60 * 20, 2));
 			return true;
 		});
 		
 		// Hunger 50 for 15s
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			player.addEffect(new MobEffectInstance(MobEffects.HUNGER, 15 * 20, 49));
 			return true;
 		});
 		
 		// Shrink the player
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			runCommand(player, "attribute @p minecraft:scale base set 0.1");
 			return true;
@@ -277,7 +278,7 @@ public final class TabooTrickler {
 		});
 		
 		// Grow the player
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			runCommand(player, "attribute @p minecraft:scale base set 3");
 			return true;
@@ -287,7 +288,7 @@ public final class TabooTrickler {
 		});
 		
 		// Reduce durability of held item
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			// Get the item in the main hand
 			ItemStack heldItem = player.getMainHandItem();
@@ -304,7 +305,7 @@ public final class TabooTrickler {
 		}).setMessage("No more durability for you");
 		
 		// Replace all torches in your inventory and ones nearby with redstone torches
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			BlockPos playerPos = player.blockPosition();
 			int radius = 10;
@@ -359,7 +360,7 @@ public final class TabooTrickler {
 		}).setMessage("May all your torches be redstone ones");
 		
 		// Replace all stone and cobblestone in a radius with their infested counterpart
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			BlockPos playerPos = player.blockPosition();
 			int radius = 5;
@@ -394,7 +395,7 @@ public final class TabooTrickler {
 		}).setMessage("They're living in your walls");
 		
 		// Cobweb trap
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			BlockPos center = player.blockPosition();
 			int radius = 2;
@@ -410,7 +411,7 @@ public final class TabooTrickler {
 		});
 		
 		// Silverfish with weaving
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			for(int i = 0; i < 3; i++)
 			{
@@ -421,7 +422,7 @@ public final class TabooTrickler {
 		});
 		
 		// Spawn one creeper
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			Creeper creeper = EntityType.CREEPER.create(level, EntitySpawnReason.COMMAND);
 			if(creeper != null)
@@ -434,7 +435,7 @@ public final class TabooTrickler {
 		});
 		
 		// Spawn 2 skeletons
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			for(int i = 0; i < 2; i++)
 			{
@@ -444,21 +445,8 @@ public final class TabooTrickler {
 			return true;
 		});
 		
-		// Spawn one elder guardian
-		register(TricklerCategory.BAD, (player, level) ->
-		{
-			ElderGuardian guardian = EntityType.ELDER_GUARDIAN.create(level, EntitySpawnReason.COMMAND);
-			if(guardian != null)
-			{
-				guardian.setPos(player.position());
-				level.addFreshEntity(guardian);
-			}
-			
-			return true;
-		});
-		
 		// Curse of vanishing on their armor / held armor
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			var equipment = player.getInventory().getEquipment();
 			List<ItemStack> armor = List.of(player.getItemHeldByArm(HumanoidArm.RIGHT), player.getItemHeldByArm(HumanoidArm.LEFT), equipment.get(EquipmentSlot.HEAD), equipment.get(EquipmentSlot.CHEST), equipment.get(EquipmentSlot.LEGS), equipment.get(EquipmentSlot.FEET));
@@ -474,7 +462,7 @@ public final class TabooTrickler {
 		}).setMessage("Applied curse of vanishing on your held items and armor");
 		
 		// Scramble inventory
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			// Get the inventory list (main inventory only)
 			List<ItemStack> inventoryList = player.getInventory().getNonEquipmentItems();
@@ -497,7 +485,7 @@ public final class TabooTrickler {
 		}).setMessage("Scrambled your inventory");
 		
 		// Raw kelp spam (this even sets their armor slots lmao)
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			Inventory inventory = player.getInventory();
 			
@@ -520,7 +508,7 @@ public final class TabooTrickler {
 		});
 		
 		// Remove all item entities in a 10 block radius
-		register(TricklerCategory.BAD, (player, level) ->
+		register(OversaidCategory.BAD, (player, level) ->
 		{
 			final int radius = 10;
 			
@@ -539,40 +527,47 @@ public final class TabooTrickler {
 			return !itemEntities.isEmpty();
 		}).setMessage("Deleted all item entities near you");
 		
+		// End crystal at pos
+		register(OversaidCategory.BAD, (player, level) ->
+		{
+			runCommand(player, "summon minecraft:end_crystal ~ ~1 ~ {ShowBottom:1b}");
+			return true;
+		});
+		
 		// Tp them to the nether for a bit then tp them back
 		// This also gives them a temporary feather falling effect so they don't drop to their death
-		register(TricklerCategory.BAD, (player, level) ->
-		{
-			var destLevel = player.getServer().getLevel(Level.NETHER).getLevel();
-			player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 15 * 20, 1)); // 15 secs of slow falling
-			player.teleport(new TeleportTransition(destLevel, destLevel.getSharedSpawnPos().above().getBottomCenter(), Vec3.ZERO, 0, 0, TeleportTransition.DO_NOTHING));
-			return true;
-		}).addReset(TimeUnit.MINUTES, 2, player ->
-		{
-			// Only proceed if they're still in the nether
-			if(player.level().dimension() == Level.NETHER)
-				return;
-			// Tp them back to a good spawn point (this seems to do the trick)
-			var teleporttransition = player.findRespawnPositionAndUseSpawnBlock(false, TeleportTransition.DO_NOTHING);
-			player.teleport(teleporttransition);
-		}).setMessage("Enjoy the nether for a short while");
+		//		register(TricklerCategory.BAD, (player, level) ->
+		//		{
+		//			var destLevel = player.getServer().getLevel(Level.NETHER).getLevel();
+		//			player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 15 * 20, 1)); // 15 secs of slow falling
+		//			player.teleport(new TeleportTransition(destLevel, destLevel.getSharedSpawnPos().above().getBottomCenter(), Vec3.ZERO, 0, 0, TeleportTransition.DO_NOTHING));
+		//			return true;
+		//		}).addReset(TimeUnit.MINUTES, 2, player ->
+		//		{
+		//			// Only proceed if they're still in the nether
+		//			if(player.level().dimension() == Level.NETHER)
+		//				return;
+		//			// Tp them back to a good spawn point (this seems to do the trick)
+		//			var teleporttransition = player.findRespawnPositionAndUseSpawnBlock(false, TeleportTransition.DO_NOTHING);
+		//			player.teleport(teleporttransition);
+		//		}).setMessage("Enjoy the nether for a short while");
 	}
 	
 	private static void registerVeryBad()
 	{
 		// Summon anvils above their head, then immediately make them disappear
 		// This is all we have to do
-		new AnvilPunishment(TricklerCategory.VERY_BAD);
+		new AnvilPunishment(OversaidCategory.VERY_BAD);
 		
 		// Summon lightning bolt
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			runCommand(player, "execute at " + player.getName().getString() + " run summon lightning_bolt ~ ~ ~");
 			return true;
 		});
 		
 		// Summon 10 angry bees
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			for(int i = 0; i < 10; i++)
 			{
@@ -590,14 +585,14 @@ public final class TabooTrickler {
 		});
 		
 		// Insane levitation for 3s
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			player.addEffect(new MobEffectInstance(MobEffects.LEVITATION, 3 * 20, 9));
 			return true;
 		}).setMessage("Up we go!!");
 		
 		// Summon 3 killer bunnies
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			for(int i = 0; i < 3; i++)
 			{
@@ -608,7 +603,7 @@ public final class TabooTrickler {
 		});
 		
 		// Spawn 10 pufferfish
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			for(int i = 0; i < 10; i++)
 			{
@@ -618,17 +613,46 @@ public final class TabooTrickler {
 			return true;
 		});
 		
+		// Spawn 2 invisible enderman that are agrod on you
+		register(OversaidCategory.VERY_BAD, (player, level) ->
+		{
+			for(int i = 0; i < 2; i++)
+			{
+				// Spawn near player
+				EnderMan enderman = EntityType.ENDERMAN.create(level, EntitySpawnReason.COMMAND);
+				if(enderman == null)
+					return false;
+				
+				enderman.setPos(player.getX(), player.getY(), player.getZ());
+				
+				// Set the player as target
+				enderman.setTarget(player);
+				
+				// (Optional) Force it to become aggressive immediately
+				enderman.setPersistentAngerTarget(player.getUUID());
+				enderman.setRemainingPersistentAngerTime(600); // 30 seconds
+				
+				// Give them invisibility
+				enderman.addEffect(new MobEffectInstance(MobEffects.INVISIBILITY, 30 * 20, 1));
+				
+				// Add to world
+				level.addFreshEntity(enderman);
+			}
+			
+			return true;
+		});
+		
 		// Launch in random XZ direction with some Y lift
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			final int strength = 20;
-			player.setDeltaMovement(new Vec3((Math.random() - 0.5) * strength, 5, (Math.random() - 0.5) * strength));
+			player.setDeltaMovement(new Vec3((Math.random() - 0.5) * strength, 3, (Math.random() - 0.5) * strength));
 			player.hurtMarked = true;
 			return true;
 		});
 		
 		// Force player to MLG clutch
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			// Nether has a bedrock roof so this would just trap them up there (although funny, its annoying)
 			if(player.level().dimension() == Level.NETHER)
@@ -641,49 +665,31 @@ public final class TabooTrickler {
 			// They are ready for the clutch
 			player.teleportTo(player.getX(), player.getY() + 100, player.getZ());
 			return true;
-		}).setMessage("You now have a water bucket. Lets see this clutch asf MLG");
-		
-		// Spawn live TNT with 3 second fuse
-		register(TricklerCategory.VERY_BAD, (player, level) ->
-		{
-			runCommand(player, "summon tnt ~ ~ ~ {Fuse:60}");
-			return true;
-		}).setMessage("RUN");
-		
-		// Spawn 3 baby zombies (needs loop)
-		register(TricklerCategory.VERY_BAD, (player, level) ->
-		{
-			for(int i = 0; i < 3; i++)
-			{
-				runCommand(player, "summon zombie ~ ~ ~ {IsBaby:1b}");
-			}
-			
-			return true;
-		});
+		}).setMessage("You have a water bucket. Lets see this clutch asf MLG");
 		
 		// Delete held item unless it's an eye of ender
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			ItemStack held = player.getMainHandItem();
 			if(!held.isEmpty() && !held.is(Items.ENDER_EYE))
 			{
 				player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-				player.displayClientMessage(Component.literal("your " + held.getDisplayName().getString() + " is mine now"), false);
+				player.displayClientMessage(Component.literal("your ").append(held.getItemName()).append(" is mine now"), false);
 				return true;
 			}
 			
 			return false;
 		});
 		
-		// VERY BAD (65-69): Spawn charged creeper
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		// Spawn charged creeper
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			runCommand(player, "summon creeper ~ ~ ~ {powered:1b}");
 			return true;
 		});
 		
-		// VERY BAD (70-74): Spawn 5 phantoms (needs loop)
-		register(TricklerCategory.VERY_BAD, (player, level) ->
+		// Spawn 5 phantoms (needs loop)
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			for(int i = 0; i < 5; i++)
 			{
@@ -693,22 +699,8 @@ public final class TabooTrickler {
 			return true;
 		});
 		
-		// VERY BAD (75-79): Spawn 3 invisible skeletons (needs loop + potion effect)
-		register(TricklerCategory.VERY_BAD, (player, level) ->
-		{
-			for(int i = 0; i < 3; i++)
-			{
-				runCommand(player, "summon skeleton ~ ~ ~ {active_effects:[{id:\"minecraft:invisibility\",duration:20000000,show_icon:0b}]}");
-			}
-			
-			return true;
-		});
-	}
-	
-	private static void registerCrushing()
-	{
 		// Spawn 3 invisible baby zombies
-		register(TricklerCategory.CRUSHING, (player, level) ->
+		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			for(int i = 0; i < 3; i++)
 			{
@@ -717,30 +709,37 @@ public final class TabooTrickler {
 			
 			return true;
 		}).setMessage("RELEASE THE BABY!!");
-		
-		// Spawn a zombie with full diamond gear
-		register(TricklerCategory.CRUSHING, (player, level) ->
+	}
+	
+	private static void registerCrushing()
+	{
+		// Rig them to explode (give them time to prepare)
+		register(OversaidCategory.CRUSHING, (player, level) -> true).setMessage("You are rigged to explode in 15 seconds").addReset(TimeUnit.SECONDS, 15, player ->
 		{
-			runCommand(player, "summon zombie ~ ~ ~ {equipment:{mainhand:{count:1,id:\"minecraft:diamond_sword\"},feet:{id: \"minecraft:diamond_boots\",count:1},legs:{id: \"minecraft:diamond_leggings\",count:1},chest:{id: \"minecraft:diamond_chestplate\",count:1},head:{id:\"minecraft:diamond_helmet\",count:1}}}");
-			return true;
+			// Ig they win
+			if(player.isDeadOrDying())
+				return;
+			
+			Vec3 pos = player.position();
+			player.level().explode(null, player.level().damageSources().generic(), new ExplosionDamageCalculator(), pos.x, pos.y, pos.z, 5, true, Level.ExplosionInteraction.BLOCK);
 		});
 		
 		// Lava block under player
-		register(TricklerCategory.CRUSHING, (player, level) ->
+		register(OversaidCategory.CRUSHING, (player, level) ->
 		{
 			runCommand(player, "setblock ~ ~ ~ lava");
 			return true;
 		});
 		
 		// Spawn one Warden
-		register(TricklerCategory.CRUSHING, (player, level) ->
+		register(OversaidCategory.CRUSHING, (player, level) ->
 		{
 			runCommand(player, "summon warden ~ ~ ~");
 			return true;
 		}).setMessage("good luck");
 		
 		// Replace helmet with pumpkin with Curse of Binding
-		register(TricklerCategory.CRUSHING, (player, level) ->
+		register(OversaidCategory.CRUSHING, (player, level) ->
 		{
 			ItemStack helmet = player.getInventory().getEquipment().get(EquipmentSlot.HEAD);
 			
@@ -753,14 +752,14 @@ public final class TabooTrickler {
 		}).setMessage("PUMPKIN!!!!");
 		
 		// Summon 1 invisible ghast
-		register(TricklerCategory.CRUSHING, (player, level) ->
+		register(OversaidCategory.CRUSHING, (player, level) ->
 		{
 			runCommand(player, "summon ghast ~ ~5 ~ {active_effects:[{id:\"minecraft:invisibility\",duration:20000000,show_icon:0b}]}");
 			return true;
 		});
 		
 		// Set max HP to 8 hearts (16 health)
-		register(TricklerCategory.CRUSHING, (player, level) ->
+		register(OversaidCategory.CRUSHING, (player, level) ->
 		{
 			final int newHealth = 8;
 			player.getAttribute(Attributes.MAX_HEALTH).setBaseValue(newHealth);
@@ -771,7 +770,7 @@ public final class TabooTrickler {
 			}
 			
 			return true;
-		}).addReset(TimeUnit.SECONDS, 10, player ->
+		}).addReset(TimeUnit.MINUTES, 5, player ->
 		{
 			player.getAttribute(Attributes.MAX_HEALTH).setBaseValue(ServerPlayer.MAX_HEALTH);
 			player.displayClientMessage(Component.literal("Reset your max hearts to normal"), false);
