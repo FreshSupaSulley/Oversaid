@@ -17,8 +17,8 @@ public class AbyssPunishment extends ServerPunishment {
 	
 	public AbyssPunishment(OversaidCategory category)
 	{
-		// 10 seconds should be enough to fall to the bottom?? Right???
-		super(category, "The abyss doth beckon thee", TimeUnit.SECONDS, 10);
+		// Stop them halfway through their fall to bury them in stone
+		super(category, "The abyss doth beckon thee", TimeUnit.SECONDS, 3);
 	}
 	
 	@Override
@@ -49,10 +49,11 @@ public class AbyssPunishment extends ServerPunishment {
 					}
 					
 					// Stop if block is unbreakable
-					if(state.getDestroySpeed(level, targetPos) == -1.0F)
-					{
-						break;
-					}
+					// ^ nah it gets restored anyways
+//					if(state.getDestroySpeed(level, targetPos) == -1.0F)
+//					{
+//						break;
+//					}
 					
 					// We need to restore this later
 					restore.put(targetPos, state.getBlock().defaultBlockState());

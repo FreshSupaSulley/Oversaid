@@ -20,6 +20,7 @@ import net.minecraftforge.fml.LogicalSide;
 import net.minecraftforge.fml.common.Mod;
 
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 @ForgeCensorCraftPlugin
@@ -103,7 +104,7 @@ public class OversaidPlugin implements CensorCraftPlugin {
 				{
 					punishment = new OversaidPunishment();
 				}
-				while(Oversaid.RESETS.get(sample.getKey()).containsKey(punishment.getPunishmentIndex()));
+				while(Oversaid.RESETS.containsKey(sample.getKey()) && Oversaid.RESETS.get(sample.getKey()).containsKey(punishment.getPunishmentIndex()));
 				
 				final var antiFinal = punishment;
 				// make it yellow to pop out more from regular chat messages
@@ -122,11 +123,21 @@ public class OversaidPlugin implements CensorCraftPlugin {
 		
 		// Find the top X most popular
 		// Make sure to exclude the taboo if its ignored in the config
-		final int minRepetitions = Config.MIN_REPETITIONS.get();
-		var newTaboos = WORD_COUNTS.entrySet().stream().filter(entry -> entry.getValue() >= minRepetitions && !Config.IGNORED_WORDS.get().contains(entry.getKey())).sorted(Map.Entry.comparingByValue(Comparator.reverseOrder())).limit(Config.MAX_WORDS.get()).map(Map.Entry::getKey).toList();
+		Predicate<String> wordValidator = (word) ->
+		{
+			// Meets min repetitions
+			boolean result = WORD_COUNTS.getOrDefault(word, 0) >= Config.MIN_REPETITIONS.get();
+			// If the word isn't ignored
+			result &= !Config.IGNORED_WORDS.get().contains(word);
+			// Meets min length
+			result &= word.length() >= Config.MIN_WORD_LENGTH.get();
+			return result;
+		};
+		
+		var neww = WORD_COUNTS.keySet().stream().filter(wordValidator).toList();
 		
 		// Get all new taboos
-		List<String> toBan = newTaboos.stream().filter(sample -> !TABOOS.contains(sample)).toList();
+		List<String> toBan = neww.stream().filter(sample -> !TABOOS.contains(sample)).toList();
 		
 		// If we're adding things
 		if(!toBan.isEmpty())
@@ -161,10 +172,11 @@ public class OversaidPlugin implements CensorCraftPlugin {
 			});
 			
 			// Update taboos
-			TABOOS.addAll(newTaboos);
+			TABOOS.addAll(neww);
 		}
 		
-		TABOOS.removeIf(Config.IGNORED_WORDS.get()::contains);
+		// Remove all old, non-valid words
+		TABOOS.removeIf(sample -> !wordValidator.test(sample));
 		
 		// Now handle the scoreboard
 		Scoreboard scoreboard = event.getServer().getScoreboard();

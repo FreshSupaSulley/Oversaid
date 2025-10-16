@@ -14,6 +14,7 @@ public class Config {
 	public static final ForgeConfigSpec.IntValue MIN_REPETITIONS = BUILDER.comment("Minimum amount of times a word has to be said before its considered a taboo").defineInRange("min_repetitions", 3, 1, Integer.MAX_VALUE);
 	public static final ForgeConfigSpec.IntValue MAX_WORDS = BUILDER.comment("Maximum amount of words to store as taboos").defineInRange("max_words", 10, 1, Integer.MAX_VALUE);
 	public static final ForgeConfigSpec.ConfigValue<List<? extends String>> IGNORED_WORDS = BUILDER.comment("Taboos to not include if it's said").defineList("ignored_words", List.of(), (entry) -> true);
+	public static final ForgeConfigSpec.ConfigValue<Integer> MIN_WORD_LENGTH = BUILDER.comment("Minimum word length (in characters)").defineInRange("min_word_length", 0, 0, Integer.MAX_VALUE);
 	public static final ForgeConfigSpec.ConfigValue<List<? extends Integer>> WEIGHTS = BUILDER.comment("Weights of each punishment type. The higher the number, the more likely that punishment category will be called.", "Goes in order, left to right as follows: " + Stream.of(OversaidCategory.values()).map(OversaidCategory::getFancyName).collect(Collectors.joining(", "))).defineList("weights", Arrays.stream(OversaidCategory.values()).map(OversaidCategory::getWeight).toList(), o -> ((Integer) o) >= 0);
 	
 	static final ForgeConfigSpec SPEC = BUILDER.build();

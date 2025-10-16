@@ -28,7 +28,7 @@ public class AnvilPunishment extends ServerPunishment {
 	{
 		// Constants
 		final var level = player.level();
-		final int size = 4, yOffsetAboveFeet = 15; // should be generous enough to give them time to run out of the way
+		final int size = 4, yOffsetAboveFeet = 25; // should be generous enough to give them time to run out of the way
 		
 		BlockPos center = player.blockPosition().above(yOffsetAboveFeet);
 		int half = size / 2;

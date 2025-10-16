@@ -9,7 +9,7 @@ import java.util.stream.IntStream;
 
 public enum OversaidCategory {
 	
-	GOOD(1, "Good"), BAD(40, "Bad"), VERY_BAD(20, "Very Bad"), CRUSHING(5, "Crushing");
+	GOOD(0, "Good"), BAD(80, "Bad"), VERY_BAD(19, "Very Bad"), CRUSHING(1, "Crushing");
 	
 	private final int weight;
 	private final String fancyName;

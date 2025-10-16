@@ -17,8 +17,7 @@ public class WardenPunishment extends ServerPunishment {
 	
 	public WardenPunishment(OversaidCategory category)
 	{
-		// 10 seconds should be enough to fall to the bottom?? Right???
-		super(category, "good luck", TimeUnit.MINUTES, 3);
+		super(category, "good luck", TimeUnit.MINUTES, 2);
 	}
 	
 	@Override

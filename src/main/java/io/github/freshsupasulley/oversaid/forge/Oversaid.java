@@ -270,8 +270,9 @@ public final class Oversaid {
 		// Poison and weakness II for 20
 		register(OversaidCategory.BAD, (player, level) ->
 		{
-			player.addEffect(new MobEffectInstance(MobEffects.POISON, 20 * 20, 1));
-			player.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, 20 * 20, 1));
+			final int seconds = 20;
+			player.addEffect(new MobEffectInstance(MobEffects.POISON, seconds * 20, 1));
+			player.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, seconds * 20, 1));
 			return true;
 		});
 		
@@ -325,67 +326,13 @@ public final class Oversaid {
 			if(!heldItem.isDamageableItem())
 				return false;
 			
-			final int factor = 8;
+			// Half it I guess?
+			final int factor = 2;
 			
 			// Don't break it, leave it at most 1 tap away
 			heldItem.setDamageValue(Math.min(heldItem.getMaxDamage() - 1, heldItem.getMaxDamage() - (heldItem.getMaxDamage() - heldItem.getDamageValue()) / factor));
 			return true;
 		}).setMessage("No more durability for you");
-		
-		// Replace all torches in your inventory and ones nearby with redstone torches
-		register(OversaidCategory.BAD, (player, level) ->
-		{
-			BlockPos playerPos = player.blockPosition();
-			int radius = 10;
-			
-			var list = BlockPos.betweenClosedStream(playerPos.offset(-radius, -radius, -radius), playerPos.offset(radius, radius, radius)).map(pos -> Map.entry(pos.immutable(), level.getBlockState(pos))).filter(entry ->
-			{
-				Block block = entry.getValue().getBlock();
-				return block == Blocks.TORCH || block == Blocks.WALL_TORCH;
-			}).toList();
-			
-			boolean replacedAny = false;
-			
-			for(int i = 0; i < player.getInventory().getContainerSize(); i++)
-			{
-				ItemStack stack = player.getInventory().getItem(i);
-				if(stack.is(Items.TORCH))
-				{
-					ItemStack redstone = new ItemStack(Items.REDSTONE_TORCH, stack.getCount());
-					player.getInventory().setItem(i, redstone);
-					replacedAny = true;
-				}
-			}
-			
-			// If we didn't find any nearby torches AND the player doesn't have any
-			if(list.isEmpty() && !replacedAny)
-				return false;
-			
-			list.forEach(entry ->
-			{
-				BlockPos pos = entry.getKey();
-				BlockState state = entry.getValue();
-				Block block = state.getBlock();
-				
-				if(block == Blocks.TORCH)
-				{
-					level.setBlockAndUpdate(pos, Blocks.REDSTONE_TORCH.defaultBlockState());
-				}
-				else if(block == Blocks.WALL_TORCH)
-				{
-					Direction facing = state.getValue(WallTorchBlock.FACING);
-					BlockPos attached = pos.relative(facing.getOpposite());
-					
-					if(level.getBlockState(attached).isSolid())
-					{
-						BlockState redWall = Blocks.REDSTONE_WALL_TORCH.defaultBlockState().setValue(WallTorchBlock.FACING, facing);
-						level.setBlockAndUpdate(pos, redWall);
-					}
-				}
-			});
-			
-			return true;
-		}).setMessage("May all your torches be redstone ones");
 		
 		// Replace all stone and cobblestone in a radius with their infested counterpart
 		register(OversaidCategory.BAD, (player, level) ->
@@ -421,25 +368,6 @@ public final class Oversaid {
 			
 			return true;
 		}).setMessage("They're living in your walls");
-		
-		// Cobweb trap
-		register(OversaidCategory.BAD, (player, level) ->
-		{
-			BlockPos center = player.blockPosition();
-			int radius = 2;
-			AtomicInteger count = new AtomicInteger();
-			
-			BlockPos.betweenClosed(center.offset(-radius, -radius, -radius), center.offset(radius, radius, radius)).forEach(pos ->
-			{
-				if(level.getBlockState(pos).isAir())
-				{
-					count.incrementAndGet();
-					level.setBlock(pos, Blocks.COBWEB.defaultBlockState(), 3);
-				}
-			});
-			
-			return count.get() > 0;
-		});
 		
 		// Silverfish with weaving
 		register(OversaidCategory.BAD, (player, level) ->
@@ -579,31 +507,27 @@ public final class Oversaid {
 			
 			return replacedAny;
 		}).setMessage("Your buckets have been purified with milk");
-		
-		// End crystal at pos
-		register(OversaidCategory.BAD, (player, level) ->
-		{
-			runCommand(player, "summon minecraft:end_crystal ~ ~1 ~ {ShowBottom:1b}");
-			return true;
-		});
 	}
 	
 	private static void registerVeryBad()
 	{
-		// Summon anvils above their head, then immediately make them disappear
-		// This is all we have to do
-		new AnvilPunishment(OversaidCategory.VERY_BAD);
-		
-		// Infinite bad omen
-		register(OversaidCategory.VERY_BAD, (player, level) ->
+		// Cobweb trap
+		register(OversaidCategory.BAD, (player, level) ->
 		{
-			if(player.hasEffect(MobEffects.BAD_OMEN))
-			{
-				return false;
-			}
+			BlockPos center = player.blockPosition();
+			int radius = 1;
+			AtomicInteger count = new AtomicInteger();
 			
-			player.addEffect(new MobEffectInstance(MobEffects.BAD_OMEN, -1, 3));
-			return true;
+			BlockPos.betweenClosed(center.offset(-radius, -radius, -radius), center.offset(radius, radius, radius)).forEach(pos ->
+			{
+				if(level.getBlockState(pos).isAir())
+				{
+					count.incrementAndGet();
+					level.setBlock(pos, Blocks.COBWEB.defaultBlockState(), 3);
+				}
+			});
+			
+			return count.get() > 0;
 		});
 		
 		// Invisible creeper
@@ -727,19 +651,20 @@ public final class Oversaid {
 			return true;
 		}).setMessage("You have a water bucket. Lets see this clutch asf MLG");
 		
+		// this is bad
 		// Delete held item unless it's an eye of ender
-		register(OversaidCategory.VERY_BAD, (player, level) ->
-		{
-			ItemStack held = player.getMainHandItem();
-			if(!held.isEmpty() && !held.is(Items.ENDER_EYE))
-			{
-				player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-				player.displayClientMessage(Component.literal("your ").append(held.getItemName()).append(" is mine now"), false);
-				return true;
-			}
-			
-			return false;
-		});
+//		register(OversaidCategory.VERY_BAD, (player, level) ->
+//		{
+//			ItemStack held = player.getMainHandItem();
+//			if(!held.isEmpty() && !held.is(Items.ENDER_EYE))
+//			{
+//				player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+//				player.displayClientMessage(Component.literal("your ").append(held.getItemName()).append(" is mine now"), false);
+//				return true;
+//			}
+//
+//			return false;
+//		});
 		
 		// Spawn charged creeper
 		register(OversaidCategory.VERY_BAD, (player, level) ->
@@ -769,14 +694,26 @@ public final class Oversaid {
 			
 			return true;
 		}).setMessage("RELEASE THE BABY!!");
+		
+		// Summon 1 invisible ghast
+		register(OversaidCategory.VERY_BAD, (player, level) ->
+		{
+			runCommand(player, "summon ghast ~ ~5 ~ {active_effects:[{id:\"minecraft:invisibility\",duration:20000000,show_icon:0b}]}");
+			return true;
+		});
 	}
 	
 	private static void registerCrushing()
 	{
-		// Dig them a giant fucking hole underneath their feet
+		// Summon anvils above their head, then immediately make them disappear
+		// This is all we have to do
+		new AnvilPunishment(OversaidCategory.CRUSHING);
+		
+		// Dig them a giant fucking hole underneath their feet, let them fall for 3s, then reset the blocks
+		// This effectively traps them inside the earth
 		new AbyssPunishment(OversaidCategory.CRUSHING);
 		
-		// Spawn the warden. This also kills it after a while cause it would be annoying to deal with after a while
+		// Spawn the warden, TEMPORARILY. This kills it after 2 mins
 		new WardenPunishment(OversaidCategory.CRUSHING);
 		
 		// Rig them to explode (give them time to prepare)
@@ -791,11 +728,12 @@ public final class Oversaid {
 		});
 		
 		// Lava block under player
-		register(OversaidCategory.CRUSHING, (player, level) ->
-		{
-			runCommand(player, "setblock ~ ~ ~ lava");
-			return true;
-		});
+		// maybe a bit too deadly
+//		register(OversaidCategory.CRUSHING, (player, level) ->
+//		{
+//			runCommand(player, "setblock ~ ~ ~ lava");
+//			return true;
+//		});
 		
 		// Replace helmet with pumpkin with Curse of Binding
 		register(OversaidCategory.CRUSHING, (player, level) ->
@@ -810,17 +748,13 @@ public final class Oversaid {
 			return true;
 		}).setMessage("PUMPKIN!!!!");
 		
-		// Summon 1 invisible ghast
+		// Set max HP to a few hearts less than normal
 		register(OversaidCategory.CRUSHING, (player, level) ->
 		{
-			runCommand(player, "summon ghast ~ ~5 ~ {active_effects:[{id:\"minecraft:invisibility\",duration:20000000,show_icon:0b}]}");
-			return true;
-		});
-		
-		// Set max HP to 8 hearts (16 health)
-		register(OversaidCategory.CRUSHING, (player, level) ->
-		{
-			final int newHealth = 8;
+			final float factor = 0.8f;
+			final float baseHealth = (float) player.getAttribute(Attributes.MAX_HEALTH).getValue();
+			
+			final float newHealth = baseHealth * factor;
 			player.getAttribute(Attributes.MAX_HEALTH).setBaseValue(newHealth);
 			
 			if(player.getHealth() > newHealth)
@@ -833,6 +767,6 @@ public final class Oversaid {
 		{
 			player.getAttribute(Attributes.MAX_HEALTH).setBaseValue(ServerPlayer.MAX_HEALTH);
 			player.displayClientMessage(Component.literal("Reset your max hearts to normal"), false);
-		}).setMessage("Reduced your max hearts for a bit");
+		}).setMessage("Reduced your max hearts for 5 minutes");
 	}
 }
