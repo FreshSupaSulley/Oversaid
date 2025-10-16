@@ -15,6 +15,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.*;
@@ -24,6 +25,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.vehicle.MinecartTNT;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantments;
@@ -557,6 +559,27 @@ public final class Oversaid {
 			return !itemEntities.isEmpty();
 		}).setMessage("Deleted all item entities near you");
 		
+		// Replace all water and lava buckets in inventory with milk buckets
+		register(OversaidCategory.BAD, (player, level) ->
+		{
+			boolean replacedAny = false;
+			
+			for(int i = 0; i < player.getInventory().getContainerSize(); i++)
+			{
+				ItemStack stack = player.getInventory().getItem(i);
+				
+				// Check if the item is a water or lava bucket
+				if(stack.getItem() == Items.WATER_BUCKET || stack.getItem() == Items.LAVA_BUCKET)
+				{
+					// Replace with a milk bucket, maintaining the original count (should always be 1, but safe check)
+					player.getInventory().setItem(i, new ItemStack(Items.MILK_BUCKET, stack.getCount()));
+					replacedAny = true;
+				}
+			}
+			
+			return replacedAny;
+		}).setMessage("Your buckets have been purified with milk");
+		
 		// End crystal at pos
 		register(OversaidCategory.BAD, (player, level) ->
 		{
@@ -580,6 +603,19 @@ public final class Oversaid {
 			}
 			
 			player.addEffect(new MobEffectInstance(MobEffects.BAD_OMEN, -1, 3));
+			return true;
+		});
+		
+		// Invisible creeper
+		register(OversaidCategory.VERY_BAD, (player, level) ->
+		{
+			Creeper entity = EntityType.CREEPER.create(level, EntitySpawnReason.COMMAND);
+			if(entity == null)
+				return false;
+			
+			entity.setPos(player.getX(), player.getY(), player.getZ());
+			entity.addEffect(new MobEffectInstance(MobEffects.INVISIBILITY, Integer.MAX_VALUE, 1));
+			level.addFreshEntity(entity);
 			return true;
 		});
 		
