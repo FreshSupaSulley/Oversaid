@@ -1,4 +1,4 @@
-package io.github.freshsupasulley.taboo_trickler;
+package io.github.freshsupasulley.oversaid;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -13,7 +13,7 @@ public abstract class ServerPunishment extends SidedPunishment<ServerPlayer> {
 	}
 	
 	@Override
-	void displayClientMessage(ServerPlayer context, Component message)
+	public void displayClientMessage(ServerPlayer context, Component message)
 	{
 		context.displayClientMessage(message, false);
 	}

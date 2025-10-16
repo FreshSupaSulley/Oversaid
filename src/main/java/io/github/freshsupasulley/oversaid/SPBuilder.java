@@ -1,4 +1,4 @@
-package io.github.freshsupasulley.taboo_trickler;
+package io.github.freshsupasulley.oversaid;
 
 import net.minecraft.server.level.ServerPlayer;
 

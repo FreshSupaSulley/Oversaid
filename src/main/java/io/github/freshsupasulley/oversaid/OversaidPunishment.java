@@ -1,18 +1,13 @@
-package io.github.freshsupasulley.taboo_trickler.plugin;
+package io.github.freshsupasulley.oversaid;
 
-import io.github.freshsupasulley.censorcraft.api.punishments.Punishment;
-import io.github.freshsupasulley.taboo_trickler.SidedPunishment;
-import io.github.freshsupasulley.taboo_trickler.OversaidCategory;
-import io.github.freshsupasulley.taboo_trickler.forge.Oversaid;
+import io.github.freshsupasulley.oversaid.forge.Oversaid;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 
-import java.util.UUID;
+import java.util.*;
 import java.util.function.Function;
 
-public class OversaidPunishment extends Punishment {
-	
-	public static final String PUNISHMENT_NAME = "trickler";
+public class OversaidPunishment {
 	
 	private OversaidCategory category;
 	private int punishmentIndex;
@@ -21,9 +16,9 @@ public class OversaidPunishment extends Punishment {
 	// Required
 	public OversaidPunishment()
 	{
-		// Pick a random punishment out of a random category
+		// Pick a random category based on configurable weights
 		this.category = OversaidCategory.random();
-		this.punishmentIndex = (int) (Math.random() * category.punishments.size());
+		this.punishmentIndex = findRandomPunishment(category);
 	}
 	
 	/**
@@ -40,29 +35,42 @@ public class OversaidPunishment extends Punishment {
 		this.punishmentIndex = punishmentIndex;
 	}
 	
+	private int findRandomPunishment(OversaidCategory category)
+	{
+		// Now pick a random punishment within that category
+		List<Integer> candidates = new ArrayList<>();
+		
+		for(int i = 0; i < Oversaid.punishments.size(); i++)
+		{
+			var sample = Oversaid.punishments.get(i);
+			
+			if(sample.getCategory() == category)
+			{
+				candidates.add(i);
+			}
+		}
+		
+		if(candidates.isEmpty())
+			throw new IllegalStateException("No punishments for category " + category);
+		
+		return candidates.get((int) (Math.random() * candidates.size()));
+	}
+	
+	public int getPunishmentIndex()
+	{
+		return punishmentIndex;
+	}
+	
 	public OversaidCategory getCategory()
 	{
 		return category;
 	}
 	
-	@Override
-	public String getId()
-	{
-		return PUNISHMENT_NAME;
-	}
-	
-	@Override
-	protected void buildConfig()
-	{
-	}
-	
-	@Override
-	public void punish(Object uncasted)
+	public void punish(ServerPlayer player)
 	{
 		// If we picked a server-side punishment
-		if(category.punishments.get(punishmentIndex).isServerSide())
+		if(Oversaid.punishments.get(punishmentIndex).isServerSide())
 		{
-			ServerPlayer player = (ServerPlayer) uncasted;
 			punishInternal(player, Entity::getUUID);
 		}
 	}
@@ -70,7 +78,7 @@ public class OversaidPunishment extends Punishment {
 	private <T> void punishInternal(T context, Function<T, UUID> uuidGetter)
 	{
 		// The first punishment selected on instantiation indicates the sidedness
-		boolean isServerSide = category.punishments.get(punishmentIndex).isServerSide();
+		boolean isServerSide = Oversaid.punishments.get(punishmentIndex).isServerSide();
 		String sideLog = (isServerSide ? "server" : "client") + "-side";
 		final int maxAttempts = 10;
 		boolean punished = false;
@@ -81,7 +89,7 @@ public class OversaidPunishment extends Punishment {
 			// If no punishment was found (see bottom of loop)
 			if(punishmentIndex != -1)
 			{
-				var punishment = category.punishments.get(punishmentIndex);
+				var punishment = Oversaid.punishments.get(punishmentIndex);
 				
 				Oversaid.LOGGER.debug("Attempting {} to punish from category '{}'", sideLog, category);
 				
@@ -91,7 +99,7 @@ public class OversaidPunishment extends Punishment {
 					if(punishment.hasReset())
 					{
 						UUID uuid = uuidGetter.apply(context);
-						Oversaid.addReset(uuid, punishmentIndex, punishment);
+						Oversaid.addReset(uuid, this, punishment);
 					}
 					
 					punished = true;
@@ -111,17 +119,8 @@ public class OversaidPunishment extends Punishment {
 			
 			// Pick another category and punishment since this didn't work
 			this.category = OversaidCategory.random();
-			var list = category.punishments.stream().filter(p -> p.isServerSide() == isServerSide).toList();
-			
-			if(list.isEmpty())
-			{
-				// We couldn't find a punishment in this category, so count it as an attempt with another iteration
-				punishmentIndex = -1;
-			}
-			else
-			{
-				punishmentIndex = (int) (Math.random() * list.size());
-			}
+			// if we add client punishments back we need to ensure this picks the proper side too
+			this.punishmentIndex = findRandomPunishment(category);
 		}
 		
 		if(!punished)

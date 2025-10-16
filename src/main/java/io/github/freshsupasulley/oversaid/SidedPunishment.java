@@ -1,6 +1,6 @@
-package io.github.freshsupasulley.taboo_trickler;
+package io.github.freshsupasulley.oversaid;
 
-import io.github.freshsupasulley.taboo_trickler.forge.Oversaid;
+import io.github.freshsupasulley.oversaid.forge.Oversaid;
 import net.minecraft.network.chat.Component;
 
 import java.util.concurrent.TimeUnit;
@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit;
 public abstract class SidedPunishment<T> {
 	
 	private final boolean isServer;
+	private OversaidCategory category;
 	private final String message;
 	private final TimeUnit unit;
 	private final long duration;
@@ -15,11 +16,12 @@ public abstract class SidedPunishment<T> {
 	public SidedPunishment(boolean isServer, OversaidCategory category, String message, TimeUnit unit, long duration)
 	{
 		this.isServer = isServer;
+		this.category = category;
 		this.message = message;
 		this.unit = unit;
 		this.duration = duration;
 		
-		category.punishments.add(this);
+		Oversaid.punishments.add(this);
 	}
 	
 	public SidedPunishment(boolean isServer, OversaidCategory category, String message)
@@ -32,12 +34,17 @@ public abstract class SidedPunishment<T> {
 		return unit != null;
 	}
 	
+	public final OversaidCategory getCategory()
+	{
+		return category;
+	}
+	
 	public final boolean isServerSide()
 	{
 		return isServer;
 	}
 	
-	abstract void displayClientMessage(T context, Component message);
+	public abstract void displayClientMessage(T context, Component message);
 	
 	public final boolean punish(T context)
 	{
@@ -66,7 +73,8 @@ public abstract class SidedPunishment<T> {
 	
 	public final void fireReset(T context)
 	{
-		if(!hasReset()) throw new IllegalStateException("This punishment doesn't have a reset");
+		if(!hasReset())
+			throw new IllegalStateException("This punishment doesn't have a reset");
 		
 		try
 		{
@@ -83,7 +91,8 @@ public abstract class SidedPunishment<T> {
 	
 	public final long calculateResetTime()
 	{
-		if(!hasReset()) throw new IllegalStateException("This punishment doesn't have a reset");
+		if(!hasReset())
+			throw new IllegalStateException("This punishment doesn't have a reset");
 		return System.currentTimeMillis() + unit.toMillis(duration);
 	}
 }

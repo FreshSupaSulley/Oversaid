@@ -1,6 +1,8 @@
-package io.github.freshsupasulley.taboo_trickler;
+package io.github.freshsupasulley.oversaid.punishments;
 
-import io.github.freshsupasulley.taboo_trickler.forge.Oversaid;
+import io.github.freshsupasulley.oversaid.OversaidCategory;
+import io.github.freshsupasulley.oversaid.ServerPunishment;
+import io.github.freshsupasulley.oversaid.forge.Oversaid;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerPlayer;

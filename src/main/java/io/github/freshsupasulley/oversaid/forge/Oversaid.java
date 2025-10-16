@@ -1,11 +1,13 @@
-package io.github.freshsupasulley.taboo_trickler.forge;
+package io.github.freshsupasulley.oversaid.forge;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.logging.LogUtils;
-import io.github.freshsupasulley.taboo_trickler.*;
-import io.github.freshsupasulley.taboo_trickler.plugin.OversaidPlugin;
-import io.github.freshsupasulley.taboo_trickler.plugin.OversaidPunishment;
+import io.github.freshsupasulley.oversaid.*;
+import io.github.freshsupasulley.oversaid.plugin.OversaidPlugin;
+import io.github.freshsupasulley.oversaid.punishments.AbyssPunishment;
+import io.github.freshsupasulley.oversaid.punishments.AnvilPunishment;
+import io.github.freshsupasulley.oversaid.punishments.WardenPunishment;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -26,6 +28,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ExplosionDamageCalculator;
+import net.minecraft.world.level.ItemLike;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -43,11 +46,14 @@ import org.slf4j.Logger;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiPredicate;
 
 @Mod(Oversaid.MODID)
 @Mod.EventBusSubscriber(modid = Oversaid.MODID)
 public final class Oversaid {
+	
+	public static final List<SidedPunishment<?>> punishments = new ArrayList<>();
 	
 	public static final String MODID = "oversaid";
 	public static final Logger LOGGER = LogUtils.getLogger();
@@ -129,23 +135,63 @@ public final class Oversaid {
 		var dispatcher = event.getDispatcher();
 		
 		// For testing our punishments
-		dispatcher.register(Commands.literal("trickler").requires(source -> source.hasPermission(4))
+		dispatcher.register(Commands.literal("oversaid").requires(source -> source.hasPermission(4))
 				// existing category/index branch
 				// new "add" subcommand that accepts a string (allows spaces)
-//				.then(Commands.literal("add").then(Commands.argument("taboo", StringArgumentType.greedyString()).executes(ctx ->
-//				{
-//					String text = StringArgumentType.getString(ctx, "taboo").trim();
-//
-//					// Add to list
-//					var punishment = OversaidPlugin.getOversaidPunishment();
-//					List<String> taboos = punishment.getTaboos();
-//					taboos.add(text);
-//					punishment.config.set("taboo", taboos);
-//					OversaidPlugin.serverAPI.getServerConfig().save();
-//
-//					ctx.getSource().sendSuccess(() -> Component.literal("Added ").append(Component.literal(text).withStyle(style -> style.withBold(true))).append(Component.literal(" to the trickler taboos")), true);
-//					return 0;
-//				})))
+				.then(Commands.literal("taboos").executes(ctx ->
+				{
+					Component toSend;
+					
+					if(OversaidPlugin.TABOOS.isEmpty())
+					{
+						toSend = Component.literal("No taboos");
+					}
+					else
+					{
+						toSend = Component.literal(String.join(", ", OversaidPlugin.TABOOS));
+					}
+					
+					ctx.getSource().sendSuccess(() -> toSend, false);
+					return 0;
+				})).then(Commands.literal("reset").executes(ctx ->
+				{
+					var player = ctx.getSource().getPlayerOrException();
+					var resets = Oversaid.RESETS.get(player.getUUID()).entrySet();
+					final int totalResets = resets.size();
+					var iterator = resets.iterator();
+					
+					while(iterator.hasNext())
+					{
+						try
+						{
+							//noinspection unchecked
+							((SidedPunishment<ServerPlayer>) iterator.next().getValue().punishment()).fireReset(player);
+						} catch(Exception e)
+						{
+							ctx.getSource().sendFailure(Component.literal("Failed to execute reset"));
+							return 0;
+						}
+						
+						iterator.remove();
+					}
+					
+					ctx.getSource().sendSuccess(() -> Component.literal("Fired " + totalResets + " reset(s)"), false);
+					return 0;
+				}))
+				//				.then(Commands.literal("add").then(Commands.argument("taboo", StringArgumentType.greedyString()).executes(ctx ->
+				//				{
+				//					String text = StringArgumentType.getString(ctx, "taboo").trim();
+				//
+				//					// Add to list
+				//					var punishment = OversaidPlugin.getOversaidPunishment();
+				//					List<String> taboos = punishment.getTaboos();
+				//					taboos.add(text);
+				//					punishment.config.set("taboo", taboos);
+				//					OversaidPlugin.serverAPI.getServerConfig().save();
+				//
+				//					ctx.getSource().sendSuccess(() -> Component.literal("Added ").append(Component.literal(text).withStyle(style -> style.withBold(true))).append(Component.literal(" to the trickler taboos")), true);
+				//					return 0;
+				//				})))
 				.then(Commands.literal("punish").then(Commands.argument("category", StringArgumentType.word()).suggests((ctx, builder) ->
 				{
 					for(var cat : OversaidCategory.values())
@@ -167,54 +213,37 @@ public final class Oversaid {
 					} catch(IllegalArgumentException e)
 					{
 						ctx.getSource().sendFailure(Component.literal("Invalid category: " + categoryName));
-						return 0;
+						return 1;
 					}
 					
 					// Get the punishment
 					ServerPlayer player = ctx.getSource().getPlayerOrException();
 					
-					if(index < 0 || index >= category.punishments.size())
+					if(index < 0 || index >= category.getPunishments().size())
 					{
-						ctx.getSource().sendFailure(Component.literal("Invalid index (must be within [0-" + (category.punishments.size() - 1) + "]"));
-						return 0;
+						ctx.getSource().sendFailure(Component.literal("Invalid index (must be within [0-" + (category.getPunishments().size() - 1) + "]"));
+						return 1;
 					}
 					
-					if(category.punishments.get(index).isServerSide())
+					try
 					{
-						try
-						{
-							new OversaidPunishment(category, index).punish(player);
-						} catch(RuntimeException e)
-						{
-							ctx.getSource().sendFailure(Component.literal("Failed executing server punishment"));
-							return 0;
-						}
-						
-						ctx.getSource().sendSuccess(() -> Component.literal("Executed server punishment"), false);
+						new OversaidPunishment(category, category.getPunishments().get(index)).punish(player);
+					} catch(RuntimeException e)
+					{
+						ctx.getSource().sendFailure(Component.literal("Failed executing server punishment"));
 						return 1;
 					}
-					else
-					{
-						try
-						{
-							new OversaidPunishment(category, index).punishClientSide();
-						} catch(RuntimeException e)
-						{
-							ctx.getSource().sendFailure(Component.literal("Failed executing client punishment"));
-							return 0;
-						}
-						
-						ctx.getSource().sendSuccess(() -> Component.literal("Executed client punishment"), false);
-						return 1;
-					}
+					
+					ctx.getSource().sendSuccess(() -> Component.literal("Executed server punishment"), false);
+					return 0;
 				})))));
 	}
 	
-	public static void addReset(UUID player, int index, SidedPunishment<?> selected)
+	public static void addReset(UUID player, OversaidPunishment punishment, SidedPunishment<?> selected)
 	{
 		// If a reset for this punishment was already due, this effectively just delays when the reset will happen
-		LOGGER.info("Putting reset for punishment #{}", index);
-		RESETS.computeIfAbsent(player, uuid -> new HashMap<>()).put(index, new ResetFunction(selected, selected.calculateResetTime()));
+		LOGGER.info("Putting reset for punishment in category {}", punishment.getCategory());
+		RESETS.computeIfAbsent(player, uuid -> new HashMap<>()).put(punishment.getPunishmentIndex(), new ResetFunction(selected, selected.calculateResetTime()));
 	}
 	
 	// SERVER
@@ -236,11 +265,11 @@ public final class Oversaid {
 	
 	private static void registerBad()
 	{
-		// Poison and weakness II for 30s
+		// Poison and weakness II for 20
 		register(OversaidCategory.BAD, (player, level) ->
 		{
-			player.addEffect(new MobEffectInstance(MobEffects.POISON, 30 * 20, 1));
-			player.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, 30 * 20, 1));
+			player.addEffect(new MobEffectInstance(MobEffects.POISON, 20 * 20, 1));
+			player.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, 20 * 20, 1));
 			return true;
 		});
 		
@@ -282,10 +311,7 @@ public final class Oversaid {
 		{
 			runCommand(player, "attribute @p minecraft:scale base set 3");
 			return true;
-		}).addReset(TimeUnit.MINUTES, 2, player ->
-		{
-			runCommand(player, "attribute @p minecraft:scale base set 1");
-		});
+		}).addReset(TimeUnit.MINUTES, 2, player -> runCommand(player, "attribute @p minecraft:scale base set 1"));
 		
 		// Reduce durability of held item
 		register(OversaidCategory.BAD, (player, level) ->
@@ -399,15 +425,18 @@ public final class Oversaid {
 		{
 			BlockPos center = player.blockPosition();
 			int radius = 2;
+			AtomicInteger count = new AtomicInteger();
+			
 			BlockPos.betweenClosed(center.offset(-radius, -radius, -radius), center.offset(radius, radius, radius)).forEach(pos ->
 			{
 				if(level.getBlockState(pos).isAir())
 				{
+					count.incrementAndGet();
 					level.setBlock(pos, Blocks.COBWEB.defaultBlockState(), 3);
 				}
 			});
 			
-			return true;
+			return count.get() > 0;
 		});
 		
 		// Silverfish with weaving
@@ -484,7 +513,7 @@ public final class Oversaid {
 			return true;
 		}).setMessage("Scrambled your inventory");
 		
-		// Raw kelp spam (this even sets their armor slots lmao)
+		// Shitty item spam (this even sets their armor slots lmao)
 		register(OversaidCategory.BAD, (player, level) ->
 		{
 			Inventory inventory = player.getInventory();
@@ -498,8 +527,9 @@ public final class Oversaid {
 				if(currentStack.isEmpty())
 				{
 					filled = true;
-					// Fill with a full stack of kelp (64)
-					ItemStack kelpStack = new ItemStack(Items.LEAF_LITTER, 64);
+					// Fill with a full stack of garbage
+					ItemLike[] items = {Items.LEAF_LITTER, Items.TALL_GRASS, Items.SPORE_BLOSSOM, Items.MOSS_CARPET, Items.DEAD_BUSH, Items.LARGE_FERN};
+					ItemStack kelpStack = new ItemStack(items[(int) (Math.random() * items.length)], 64);
 					inventory.setItem(slot, kelpStack);
 				}
 			}
@@ -533,24 +563,6 @@ public final class Oversaid {
 			runCommand(player, "summon minecraft:end_crystal ~ ~1 ~ {ShowBottom:1b}");
 			return true;
 		});
-		
-		// Tp them to the nether for a bit then tp them back
-		// This also gives them a temporary feather falling effect so they don't drop to their death
-		//		register(TricklerCategory.BAD, (player, level) ->
-		//		{
-		//			var destLevel = player.getServer().getLevel(Level.NETHER).getLevel();
-		//			player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 15 * 20, 1)); // 15 secs of slow falling
-		//			player.teleport(new TeleportTransition(destLevel, destLevel.getSharedSpawnPos().above().getBottomCenter(), Vec3.ZERO, 0, 0, TeleportTransition.DO_NOTHING));
-		//			return true;
-		//		}).addReset(TimeUnit.MINUTES, 2, player ->
-		//		{
-		//			// Only proceed if they're still in the nether
-		//			if(player.level().dimension() == Level.NETHER)
-		//				return;
-		//			// Tp them back to a good spawn point (this seems to do the trick)
-		//			var teleporttransition = player.findRespawnPositionAndUseSpawnBlock(false, TeleportTransition.DO_NOTHING);
-		//			player.teleport(teleporttransition);
-		//		}).setMessage("Enjoy the nether for a short while");
 	}
 	
 	private static void registerVeryBad()
@@ -558,6 +570,18 @@ public final class Oversaid {
 		// Summon anvils above their head, then immediately make them disappear
 		// This is all we have to do
 		new AnvilPunishment(OversaidCategory.VERY_BAD);
+		
+		// Infinite bad omen
+		register(OversaidCategory.VERY_BAD, (player, level) ->
+		{
+			if(player.hasEffect(MobEffects.BAD_OMEN))
+			{
+				return false;
+			}
+			
+			player.addEffect(new MobEffectInstance(MobEffects.BAD_OMEN, -1, 3));
+			return true;
+		});
 		
 		// Summon lightning bolt
 		register(OversaidCategory.VERY_BAD, (player, level) ->
@@ -646,7 +670,7 @@ public final class Oversaid {
 		register(OversaidCategory.VERY_BAD, (player, level) ->
 		{
 			final int strength = 20;
-			player.setDeltaMovement(new Vec3((Math.random() - 0.5) * strength, 3, (Math.random() - 0.5) * strength));
+			player.setDeltaMovement(new Vec3((Math.random() - 0.5) * strength, 2, (Math.random() - 0.5) * strength));
 			player.hurtMarked = true;
 			return true;
 		});
@@ -713,6 +737,12 @@ public final class Oversaid {
 	
 	private static void registerCrushing()
 	{
+		// Dig them a giant fucking hole underneath their feet
+		new AbyssPunishment(OversaidCategory.CRUSHING);
+		
+		// Spawn the warden. This also kills it after a while cause it would be annoying to deal with after a while
+		new WardenPunishment(OversaidCategory.CRUSHING);
+		
 		// Rig them to explode (give them time to prepare)
 		register(OversaidCategory.CRUSHING, (player, level) -> true).setMessage("You are rigged to explode in 15 seconds").addReset(TimeUnit.SECONDS, 15, player ->
 		{
@@ -730,13 +760,6 @@ public final class Oversaid {
 			runCommand(player, "setblock ~ ~ ~ lava");
 			return true;
 		});
-		
-		// Spawn one Warden
-		register(OversaidCategory.CRUSHING, (player, level) ->
-		{
-			runCommand(player, "summon warden ~ ~ ~");
-			return true;
-		}).setMessage("good luck");
 		
 		// Replace helmet with pumpkin with Curse of Binding
 		register(OversaidCategory.CRUSHING, (player, level) ->

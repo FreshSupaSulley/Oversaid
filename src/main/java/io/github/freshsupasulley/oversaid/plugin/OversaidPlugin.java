@@ -1,28 +1,25 @@
-package io.github.freshsupasulley.taboo_trickler.plugin;
+package io.github.freshsupasulley.oversaid.plugin;
 
 import io.github.freshsupasulley.censorcraft.api.CensorCraftPlugin;
 import io.github.freshsupasulley.censorcraft.api.CensorCraftServerAPI;
 import io.github.freshsupasulley.censorcraft.api.ForgeCensorCraftPlugin;
 import io.github.freshsupasulley.censorcraft.api.events.PluginRegistration;
-import io.github.freshsupasulley.censorcraft.api.events.server.ChatTabooEvent;
 import io.github.freshsupasulley.censorcraft.api.events.server.ReceiveTranscription;
 import io.github.freshsupasulley.censorcraft.api.events.server.ServerConfigEvent;
-import io.github.freshsupasulley.censorcraft.api.punishments.Punishment;
-import io.github.freshsupasulley.taboo_trickler.forge.Config;
-import io.github.freshsupasulley.taboo_trickler.forge.Oversaid;
+import io.github.freshsupasulley.censorcraft.api.punishments.Trie;
+import io.github.freshsupasulley.oversaid.OversaidPunishment;
+import io.github.freshsupasulley.oversaid.forge.Config;
+import io.github.freshsupasulley.oversaid.forge.Oversaid;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.scores.ScoreHolder;
 import net.minecraft.world.scores.Scoreboard;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.listener.SubscribeEvent;
 import net.minecraftforge.fml.LogicalSide;
 import net.minecraftforge.fml.common.Mod;
-import org.jetbrains.annotations.Nullable;
 
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Pattern;
 
 @ForgeCensorCraftPlugin
@@ -31,8 +28,11 @@ public class OversaidPlugin implements CensorCraftPlugin {
 	
 	// Stuff used to add most said words to taboos
 	private static final long TICK_TIME = 1000 * 1; // recheck every second ig
+	public static final Set<String> TABOOS = new HashSet<>();
 	private static final Map<String, Integer> WORD_COUNTS = new HashMap<>();
 	private static long LAST_TICK = System.currentTimeMillis();
+	
+	private static final Map<UUID, String> toPunish = new HashMap<>();
 	
 	private static CensorCraftServerAPI serverAPI;
 	
@@ -54,28 +54,32 @@ public class OversaidPlugin implements CensorCraftPlugin {
 				String match = matcher.group();
 				WORD_COUNTS.merge(match, 1, Integer::sum);
 			}
-		});
-		
-		// Add some more detail when they're punished
-		registration.registerEvent(ChatTabooEvent.class, event ->
-		{
-			// we assume there's only one tricklerpunishment in here
-			OversaidPunishment punishment = (OversaidPunishment) event.getPunishments().stream().filter(taboo -> taboo.getClass().equals(OversaidPunishment.class)).findAny().orElse(null);
 			
-			if(punishment != null)
+			// Handle punishments manually here because we're not registering a punishment (which would require installing this on both client and server)
+			// Check if that's banned
+			Trie trie = new Trie(TABOOS);
+			String taboo = trie.containsAnyIsolatedIgnoreCase(event.getText());
+			
+			if(taboo != null)
 			{
-				event.setText(Component.empty().append((Component) event.getText()).append(" (severity: ").append(Component.literal(punishment.getCategory().getFancyName()).withStyle(style -> style.withBold(true))).append(")"));
+				toPunish.put(event.getPlayerUUID(), taboo);
 			}
 		});
 		
+		// Add some more detail when they're punished
+		//		registration.registerEvent(ChatTabooEvent.class, event ->
+		//		{
+		//			// we assume there's only one tricklerpunishment in here
+		//			OversaidPunishment punishment = (OversaidPunishment) event.getPunishments().stream().filter(taboo -> taboo.getClass().equals(OversaidPunishment.class)).findAny().orElse(null);
+		//
+		//			if(punishment != null)
+		//			{
+		//				event.setText(Component.empty().append((Component) event.getText()).append(" (severity: ").append(Component.literal(punishment.getCategory().getFancyName()).withStyle(style -> style.withBold(true))).append(")"));
+		//			}
+		//		});
+		
 		// Our server
-		registration.registerPunishment(OversaidPunishment.class);
-	}
-	
-	public static @Nullable Punishment getOversaidPunishment()
-	{
-		// Get the first one. We don't care about duplicates ig
-		return serverAPI.getConfigPunishments().stream().filter(p -> p.getId().equals(OversaidPunishment.PUNISHMENT_NAME)).findFirst().orElse(null);
+		//		registration.registerPunishment(OversaidPunishment.class);
 	}
 	
 	@SubscribeEvent
@@ -84,26 +88,45 @@ public class OversaidPlugin implements CensorCraftPlugin {
 		if(event.side != LogicalSide.SERVER)
 			return;
 		
+		// Run all queued punishments
+		for(Map.Entry<UUID, String> sample : toPunish.entrySet())
+		{
+			ServerPlayer serverPlayer = event.getServer().getPlayerList().getPlayer(sample.getKey());
+			
+			if(serverPlayer != null)
+			{
+				OversaidPunishment punishment;
+				
+				// Forbid punishing someone if they were already punished by something that's still on a reset cooldown
+				// Holy fucking shit. This is the first time I've EVER used a do while loop. And it's actually a justifiable use case. Unc status achieved
+				do
+				{
+					punishment = new OversaidPunishment();
+				}
+				while(Oversaid.RESETS.get(sample.getKey()).containsKey(punishment.getPunishmentIndex()));
+				
+				final var antiFinal = punishment;
+				// make it yellow to pop out more from regular chat messages
+				event.getServer().getPlayerList().getPlayers().forEach(player -> player.displayClientMessage(Component.empty().withColor(0xFFD700).append(Component.literal(player.getScoreboardName()).withStyle(style -> style.withBold(true))).append(" said \"").append(Component.literal(sample.getValue()).withStyle(style -> style.withBold(true))).append("\" (severity: ").append(Component.literal(antiFinal.getCategory().getFancyName()).withStyle(style -> style.withBold(true))).append(")"), false));
+				punishment.punish(serverPlayer);
+			}
+		}
+		
+		toPunish.clear();
+		
 		// Don't tick every game tick
 		long now = System.currentTimeMillis();
 		if(now - LAST_TICK < TICK_TIME)
 			return;
 		LAST_TICK = now;
 		
-		// Make sure we have a punishment
-		var punishment = getOversaidPunishment();
-		if(punishment == null)
-			return;
-		
-		// Update taboos
-		List<String> taboos = punishment.getTaboos();
-		
 		// Find the top X most popular
+		// Make sure to exclude the taboo if its ignored in the config
 		final int minRepetitions = Config.MIN_REPETITIONS.get();
-		var newTaboos = WORD_COUNTS.entrySet().stream().filter(entry -> entry.getValue() >= minRepetitions).sorted(Map.Entry.comparingByValue(Comparator.reverseOrder())).limit(Config.MAX_WORDS.get()).map(Map.Entry::getKey).toList();
+		var newTaboos = WORD_COUNTS.entrySet().stream().filter(entry -> entry.getValue() >= minRepetitions && !Config.IGNORED_WORDS.get().contains(entry.getKey())).sorted(Map.Entry.comparingByValue(Comparator.reverseOrder())).limit(Config.MAX_WORDS.get()).map(Map.Entry::getKey).toList();
 		
 		// Get all new taboos
-		List<String> toBan = newTaboos.stream().filter(sample -> !taboos.contains(sample)).toList();
+		List<String> toBan = newTaboos.stream().filter(sample -> !TABOOS.contains(sample)).toList();
 		
 		// If we're adding things
 		if(!toBan.isEmpty())
@@ -136,13 +159,12 @@ public class OversaidPlugin implements CensorCraftPlugin {
 				// Tell them what got banned
 				player.displayClientMessage(Component.literal("Banned ").append(component), false);
 			});
+			
+			// Update taboos
+			TABOOS.addAll(newTaboos);
 		}
 		
-		// Update taboos
-		taboos.clear();
-		taboos.addAll(newTaboos);
-		punishment.config.set("taboo", taboos);
-		serverAPI.getServerConfig().save();
+		TABOOS.removeIf(Config.IGNORED_WORDS.get()::contains);
 		
 		// Now handle the scoreboard
 		Scoreboard scoreboard = event.getServer().getScoreboard();
@@ -163,10 +185,11 @@ public class OversaidPlugin implements CensorCraftPlugin {
 		});
 		
 		// We got the green light, fill the scoreboard
-		for(String sample : taboos)
+		for(String sample : TABOOS)
 		{
 			int count = WORD_COUNTS.getOrDefault(sample, 0);
-			if(count == 0) continue;
+			if(count == 0)
+				continue;
 			
 			// Display the number of times it was said
 			scoreboard.getOrCreatePlayerScore(ScoreHolder.forNameOnly(sample), objective).set(count);
