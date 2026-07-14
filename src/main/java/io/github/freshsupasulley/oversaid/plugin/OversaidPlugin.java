@@ -33,7 +33,7 @@ public class OversaidPlugin implements CensorCraftPlugin {
 	private static final Map<String, Integer> WORD_COUNTS = new HashMap<>();
 	private static long LAST_TICK = System.currentTimeMillis();
 	
-	private static final Map<UUID, String> toPunish = new HashMap<>();
+	private static final Map<UUID, Set<String>> toPunish = new HashMap<>();
 	
 	private static CensorCraftServerAPI serverAPI;
 	
@@ -59,11 +59,11 @@ public class OversaidPlugin implements CensorCraftPlugin {
 			// Handle punishments manually here because we're not registering a punishment (which would require installing this on both client and server)
 			// Check if that's banned
 			Trie trie = new Trie(TABOOS);
-			String taboo = trie.containsAnyIsolatedIgnoreCase(event.getText());
+			var taboos = trie.findIsolatedEntries(event.getText());
 			
-			if(taboo != null)
+			if(taboos != null)
 			{
-				toPunish.put(event.getPlayerUUID(), taboo);
+				toPunish.put(event.getPlayerUUID(), taboos);
 			}
 		});
 		
@@ -90,7 +90,7 @@ public class OversaidPlugin implements CensorCraftPlugin {
 			return;
 		
 		// Run all queued punishments
-		for(Map.Entry<UUID, String> sample : toPunish.entrySet())
+		for(Map.Entry<UUID, Set<String>> sample : toPunish.entrySet())
 		{
 			ServerPlayer serverPlayer = event.getServer().getPlayerList().getPlayer(sample.getKey());
 			
@@ -100,6 +100,7 @@ public class OversaidPlugin implements CensorCraftPlugin {
 				
 				// Forbid punishing someone if they were already punished by something that's still on a reset cooldown
 				// Holy fucking shit. This is the first time I've EVER used a do while loop. And it's actually a justifiable use case. Unc status achieved
+				// ^ unc status was achieved when I decided to make a Minecraft mod in the first place
 				do
 				{
 					punishment = new OversaidPunishment();
@@ -108,8 +109,11 @@ public class OversaidPlugin implements CensorCraftPlugin {
 				
 				final var antiFinal = punishment;
 				// make it yellow to pop out more from regular chat messages
-				event.getServer().getPlayerList().getPlayers().forEach(player -> player.displayClientMessage(Component.empty().withColor(0xFFD700).append(Component.literal(player.getScoreboardName()).withStyle(style -> style.withBold(true))).append(" said \"").append(Component.literal(sample.getValue()).withStyle(style -> style.withBold(true))).append("\" (severity: ").append(Component.literal(antiFinal.getCategory().getFancyName()).withStyle(style -> style.withBold(true))).append(")"), false));
+				event.getServer().getPlayerList().getPlayers().forEach(player -> player.displayClientMessage(Component.empty().withColor(0xFFD700).append(Component.literal(player.getScoreboardName()).withStyle(style -> style.withBold(true))).append(" said \"").append(Component.literal(String.join(", ", sample.getValue())).withStyle(style -> style.withBold(true))).append("\" (severity: ").append(Component.literal(antiFinal.getCategory().getFancyName()).withStyle(style -> style.withBold(true))).append(")"), false));
 				punishment.punish(serverPlayer);
+				
+				// Send them a punished packet
+				OversaidPlugin.serverAPI.punish(serverPlayer, Map.of());
 			}
 		}
 		

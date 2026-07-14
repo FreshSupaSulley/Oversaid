@@ -2,6 +2,8 @@
 
 Plugin for CensorCraft that bans the most commonly said words with some unique punishments.
 
+*This doesn't take advantage of v4.0.0 of the API and is honestly a bad example of a plugin. But it works!*
+
 ## How it works
 
 When a word is said, it increments that word's counter. Once a word exceeds the *minimum repetition count*, it's banned.
